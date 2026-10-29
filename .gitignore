@@ -3,3 +3,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 output/
+.DS_Store
+runs/
+build/
+dist/
+*.egg-info/

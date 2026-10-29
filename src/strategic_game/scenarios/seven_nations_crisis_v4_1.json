@@ -1,0 +1,576 @@
+{
+  "scenario_id": "seven_nations_crisis_v4_1",
+  "version": "4.1",
+  "seed": 20261029,
+  "max_rounds": 10,
+  "visibility": {
+    "ce_m_public": true
+  },
+  "threat_observation_enabled": true,
+  "negotiation_mode": "offers",
+  "world_context": {
+    "system": {
+      "power_distribution": "多极（研究者初始设定）",
+      "clarity": "责任归属和后续意图存在争议，交火伤亡与通道中断已获确认",
+      "strategic_environment": "紧张；各国对危险程度与政策选择可能有不同判断"
+    },
+    "public_facts": [
+      {
+        "id": "context-fact-1",
+        "text": "岚汐联邦与柏衡共和国的边境检查区发生短时武装交火，联合民事核查小组确认两国人员伤亡；交火起因和首先开火方尚未核实。"
+      },
+      {
+        "id": "context-fact-2",
+        "text": "交火后，双方暂停了争议检查区的通行；跨境医疗用品和商贸运输延迟，沿线国家禾沂和林屿公开报告供应受到影响。"
+      },
+      {
+        "id": "context-fact-3",
+        "text": "事发后双方均表示已结束本次交火，但对检查区控制和未来通行安排存在分歧；模拟开始时两国之间没有规则引擎定义的进行中战争。"
+      },
+      {
+        "id": "context-fact-4",
+        "text": "区域协调会议在模拟开始时提出于第2轮举行通行与事实核查磋商；双方尚未确认是否接受会议成果，磋商安排不会自动改变任何游戏数值。"
+      }
+    ],
+    "claims": [
+      {
+        "id": "context-claim-1",
+        "text": "岚汐政府声称柏衡方面在检查区采取了挑衅性行动，柏衡政府否认；这一责任指控尚无共同认可的独立结论。"
+      },
+      {
+        "id": "context-claim-2",
+        "text": "柏衡政府声称岚汐方面试图单方面改变既有通行安排，岚汐政府否认；该指控尚无共同认可的独立结论。"
+      },
+      {
+        "id": "context-claim-3",
+        "text": "禾沂民事机构警告如运输持续受阻，关键物资供应可能恶化；这是公开风险判断，不是已确认的未来事实。"
+      }
+    ],
+    "public_relations": [
+      "岚汐与柏衡在检查区安排上长期存在争议，正式外交渠道仍然可用。",
+      "森渚与岚汐有公开的经贸合作；垣硕与柏衡有公开的经贸合作，双方合作均不是自动军事援助或核报复承诺。",
+      "禾沂和林屿依赖争议通道运输，但没有公开宣布支持任何一方。",
+      "绮原参与区域协调会议并呼吁各方保护民事交通；没有国家被设定为必须接受其主张。"
+    ],
+    "time_window": "模拟第1轮为事发后的初始决策期。检查区通行仍未恢复，危机从第1轮开始计时：第1–2轮为外交窗口（只记录、不扣分），第3轮起成本逐级上升（第3/5/7/9轮升级），C/E/M 成本转移给控制方；进入战争阶段后危机成本固定为 0.5/轮、不升级，战争打平或谈判失败进入停滞阶段并再升一级。双方当事国同轮相互和平可达成共同安排，战争胜者或谈判达成也可解决危机。积分是各国 C/E/M 相对开局的净变化，全局总和恒为 0；声誉与可信度只是信号，不计分。时间推进不会自动产生磋商结果、伤亡数字或核升级，所有数值变化由引擎结算并公布事件。"
+  },
+  "countries": [
+    {
+      "country_id": "C1",
+      "name": "岚汐联邦",
+      "c": 3.5,
+      "e": 4.0,
+      "m": 5.0,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "二次核打击",
+      "role_card": {
+        "archetype": "现实主义",
+        "interests": [
+          "本国安全",
+          "边境检查安排",
+          "贸易通道"
+        ],
+        "red_lines": [
+          "本土持续遭到武装侵害"
+        ],
+        "war_aim": "安全",
+        "domestic_constraint": "边境人员伤亡引发保护边民的政治压力，经济部门要求尽快恢复运输。",
+        "strategic_objectives": [
+          "维护边境安全与本国通行安排",
+          "保障本国运输并避免对方获得决定性优势"
+        ],
+        "diplomatic_policy": "维持现状",
+        "ideology": {
+          "salience": 2,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国边境机构确认己方伤亡，但其内部记录不足以确定首先开火方；该国政府对外指控仍待核查。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国民事部门报告通道中断已影响出口订单；长期影响的范围尚未确定。"
+      ]
+    },
+    {
+      "country_id": "C2",
+      "name": "柏衡共和国",
+      "c": 4.0,
+      "e": 3.5,
+      "m": 4.5,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "有",
+      "role_card": {
+        "archetype": "民族主义",
+        "interests": [
+          "边境安全",
+          "国家自主",
+          "对通行规则的发言权"
+        ],
+        "red_lines": [
+          "被迫放弃对检查区安排的参与权"
+        ],
+        "war_aim": "安全",
+        "domestic_constraint": "边境地区对人员伤亡反应强烈，政府同时承受恢复通道的工商压力。",
+        "strategic_objectives": [
+          "维护边境安全与自身对通行规则的影响",
+          "避免其他国家单方面确定争议安排"
+        ],
+        "diplomatic_policy": "威权",
+        "ideology": {
+          "salience": 4,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国边境机构确认己方伤亡，并发现早期通信记录存在缺口；无法仅凭现有记录认定首先开火方。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国工商部门证实运输中断已影响进口，后续损失取决于通道是否恢复。"
+      ]
+    },
+    {
+      "country_id": "C3",
+      "name": "森渚合众国",
+      "c": 3.0,
+      "e": 4.5,
+      "m": 5.0,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "二次核打击",
+      "role_card": {
+        "archetype": "国际主义",
+        "interests": [
+          "地区秩序",
+          "经贸伙伴安全",
+          "外交影响力"
+        ],
+        "red_lines": [
+          "本国遭受直接武装侵害"
+        ],
+        "war_aim": "地位",
+        "domestic_constraint": "国内对通道受阻带来的经济成本与外部承诺均有争论。",
+        "strategic_objectives": [
+          "维护区域秩序与外交影响力",
+          "保护与岚汐的贸易合作，同时避免误判"
+        ],
+        "diplomatic_policy": "维持现状",
+        "ideology": {
+          "salience": 4,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国贸易统计部门确认对岚汐货运有延迟，但对交火责任没有独立证据。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：外交部门认为协调会议可能有助于恢复信息渠道；会议能否解决争议尚未知。"
+      ]
+    },
+    {
+      "country_id": "C4",
+      "name": "垣硕共和国",
+      "c": 3.5,
+      "e": 3.5,
+      "m": 4.0,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "有但打击能力有限",
+      "role_card": {
+        "archetype": "现实主义",
+        "interests": [
+          "本国安全",
+          "与柏衡的贸易关系",
+          "区域力量平衡"
+        ],
+        "red_lines": [
+          "本国领土受到持续侵害"
+        ],
+        "war_aim": "地位",
+        "domestic_constraint": "经济部门希望维持贸易，决策机构对公开介入的成本意见不一。",
+        "strategic_objectives": [
+          "维护本国安全与区域影响",
+          "维护与柏衡的经贸合作并保留决策自主"
+        ],
+        "diplomatic_policy": "威权",
+        "ideology": {
+          "salience": 2,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国商会报告通道不稳可能影响与柏衡的贸易，但尚无完整损失估计。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国没有足够证据独立确认双方哪一方挑起了交火。"
+      ]
+    },
+    {
+      "country_id": "C5",
+      "name": "禾沂自治邦",
+      "c": 3.0,
+      "e": 3.0,
+      "m": 2.5,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "无",
+      "role_card": {
+        "archetype": "进步主义",
+        "interests": [
+          "居民安全",
+          "医疗物资运输",
+          "区域磋商"
+        ],
+        "red_lines": [
+          "民事交通遭持续阻断"
+        ],
+        "war_aim": "安全",
+        "domestic_constraint": "医疗和基础供应依赖通道，公共机构要求尽快恢复运输。",
+        "strategic_objectives": [
+          "保障居民与医疗供应",
+          "争取可信的事实核查与通道恢复"
+        ],
+        "diplomatic_policy": "维持现状",
+        "ideology": {
+          "salience": 3,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国卫生部门确认一批医疗物资延迟，现有库存仍可维持第1轮基本服务；第2轮供应是否短缺尚不确定。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国没有独立掌握关于交火起因的可靠记录。"
+      ]
+    },
+    {
+      "country_id": "C6",
+      "name": "林屿共和国",
+      "c": 2.5,
+      "e": 3.5,
+      "m": 3.5,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "无",
+      "role_card": {
+        "archetype": "现实主义",
+        "interests": [
+          "贸易通道",
+          "经济稳定",
+          "避免受到牵连"
+        ],
+        "red_lines": [
+          "对本国航运施加长期封锁"
+        ],
+        "war_aim": "利益",
+        "domestic_constraint": "港口与运输企业要求恢复通道，公共财政不足以长期承担贸易中断。",
+        "strategic_objectives": [
+          "减少通道中断对经济的影响",
+          "保持对各方的接触并避免被卷入冲突"
+        ],
+        "diplomatic_policy": "维持现状",
+        "ideology": {
+          "salience": 1,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国港口记录显示既定货运延误；对责任归属和恢复通行时间尚无可靠结论。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：企业提出替代运输安排，但成本和可持续性尚未核实。"
+      ]
+    },
+    {
+      "country_id": "C7",
+      "name": "绮原联邦",
+      "c": 3.5,
+      "e": 3.0,
+      "m": 2.5,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "无",
+      "role_card": {
+        "archetype": "国际主义",
+        "interests": [
+          "区域协调机制",
+          "民事安全",
+          "外交影响力"
+        ],
+        "red_lines": [
+          "针对本国人员的持续武装侵害"
+        ],
+        "war_aim": "地位",
+        "domestic_constraint": "公众要求保护民事运输，议会对承担外部承诺的成本存在分歧。",
+        "strategic_objectives": [
+          "维护协调会议的可信度与本国外交地位",
+          "争取保护民事运输并防止误判"
+        ],
+        "diplomatic_policy": "维持现状",
+        "ideology": {
+          "salience": 3,
+          "orientation": null
+        }
+      },
+      "private_observation": [
+        "模拟开始时（第1轮）的观察，后续未自动更新：协调会议秘书处收到双方对于会议程序的初步意见；能否达成共同事实尚不确定。",
+        "模拟开始时（第1轮）的观察，后续未自动更新：本国未获得足以判断交火起因的独立证据。"
+      ]
+    }
+  ],
+  "initial_wars": [],
+  "crisis": {
+    "crisis_id": "checkpoint_crisis",
+    "title": "检查区通行危机",
+    "parties": [
+      "C1",
+      "C2"
+    ],
+    "dependents": [
+      "C5",
+      "C6"
+    ],
+    "control": "C1",
+    "stake": "检查区通行安排",
+    "unresolved_cost": {
+      "parties": {
+        "c": -0.5
+      },
+      "dependents": {
+        "e": -0.5
+      },
+      "others": {
+        "rep": -0.2
+      }
+    },
+    "escalation_rounds": [
+      3,
+      5,
+      7,
+      9
+    ],
+    "escalation_multiplier": 1.5,
+    "grace_rounds": 2
+  },
+  "objectives": [
+    {
+      "country_id": "C1",
+      "objectives": [
+        {
+          "id": "c1_keep_control",
+          "type": "goal",
+          "description": "危机解决且本国保有检查区通行安排的决定性影响",
+          "condition": {
+            "all_of": [
+              {
+                "crisis_resolved": true
+              },
+              {
+                "control_is": "C1"
+              },
+              {
+                "resolution_is": "war"
+              }
+            ]
+          },
+          "reward": {
+            "e": 0.5
+          },
+          "reward_from": "C2"
+        },
+        {
+          "id": "c1_lose_control",
+          "type": "red_line",
+          "description": "被迫放弃检查区主导权",
+          "condition": {
+            "all_of": [
+              {
+                "crisis_resolved": true
+              },
+              {
+                "control_is": "C2"
+              }
+            ]
+          },
+          "response_actions": [
+            "war",
+            "nuclear",
+            "intervene"
+          ],
+          "penalty": {
+            "e": 0.5
+          },
+          "penalty_to": "C2"
+        }
+      ]
+    },
+    {
+      "country_id": "C2",
+      "objectives": [
+        {
+          "id": "c2_gain_control",
+          "type": "goal",
+          "description": "取得检查区通行安排的决定性影响",
+          "condition": {
+            "all_of": [
+              {
+                "crisis_resolved": true
+              },
+              {
+                "control_is": "C2"
+              },
+              {
+                "resolution_is": "war"
+              }
+            ]
+          },
+          "reward": {
+            "e": 0.5
+          },
+          "reward_from": "C1"
+        },
+        {
+          "id": "c2_forced_accept",
+          "type": "red_line",
+          "description": "被迫接受由对方主导的通行安排",
+          "condition": {
+            "all_of": [
+              {
+                "crisis_resolved": true
+              },
+              {
+                "control_is": "C1"
+              }
+            ]
+          },
+          "response_actions": [
+            "war",
+            "nuclear",
+            "intervene"
+          ],
+          "penalty": {
+            "e": 0.5
+          },
+          "penalty_to": "C1"
+        }
+      ]
+    },
+    {
+      "country_id": "C3",
+      "objectives": [
+        {
+          "id": "c3_resolve",
+          "type": "goal",
+          "description": "危机得到解决，区域秩序恢复",
+          "condition": {
+            "crisis_resolved": true
+          },
+          "reward": {
+            "e": 0.5
+          },
+          "reward_from": "C1"
+        },
+        {
+          "id": "c3_escalation",
+          "type": "red_line",
+          "description": "危机升级而调停失败",
+          "condition": {
+            "all_of": [
+              {
+                "stage_is": "stalemate"
+              },
+              {
+                "crisis_level_at_least": 2
+              }
+            ]
+          },
+          "response_actions": [
+            "intervene",
+            "war",
+            "nuclear"
+          ],
+          "penalty": {
+            "e": 0.5
+          },
+          "penalty_to": "C1"
+        }
+      ]
+    },
+    {
+      "country_id": "C4",
+      "objectives": [
+        {
+          "id": "c4_resolve",
+          "type": "goal",
+          "description": "危机得到解决，贸易通道恢复",
+          "condition": {
+            "crisis_resolved": true
+          },
+          "reward": {
+            "e": 0.5
+          },
+          "reward_from": "C2"
+        },
+        {
+          "id": "c4_attacked",
+          "type": "red_line",
+          "description": "本国遭到武装攻击而未回应",
+          "condition": {
+            "attacked_by_any": true
+          },
+          "response_actions": [
+            "war",
+            "nuclear",
+            "intervene"
+          ],
+          "penalty": {
+            "e": 0.5
+          },
+          "penalty_to": "C1"
+        }
+      ]
+    },
+    {
+      "country_id": "C5",
+      "objectives": [
+        {
+          "id": "c5_corridor",
+          "type": "goal",
+          "description": "通道恢复，医疗与民生物资供应稳定",
+          "condition": {
+            "crisis_resolved": true
+          },
+          "reward": {
+            "e": 1.0
+          },
+          "reward_from": "C1"
+        }
+      ]
+    },
+    {
+      "country_id": "C6",
+      "objectives": [
+        {
+          "id": "c6_corridor",
+          "type": "goal",
+          "description": "通道恢复，贸易与航运成本回落",
+          "condition": {
+            "crisis_resolved": true
+          },
+          "reward": {
+            "e": 1.0
+          },
+          "reward_from": "C2"
+        }
+      ]
+    },
+    {
+      "country_id": "C7",
+      "objectives": [
+        {
+          "id": "c7_resolve",
+          "type": "goal",
+          "description": "协调机制取得成果，民事运输恢复",
+          "condition": {
+            "crisis_resolved": true
+          },
+          "reward": {
+            "e": 0.5
+          },
+          "reward_from": "C1"
+        }
+      ]
+    }
+  ],
+  "rules_version": "v4.1"
+}

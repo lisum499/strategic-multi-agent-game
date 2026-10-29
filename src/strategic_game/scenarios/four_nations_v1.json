@@ -1,0 +1,144 @@
+{
+  "scenario_id": "four_nations_v1",
+  "version": "1.1",
+  "seed": 20261029,
+  "max_rounds": 8,
+  "visibility": {
+    "ce_m_public": true
+  },
+  "countries": [
+    {
+      "country_id": "C1",
+      "name": "岚国",
+      "c": 3.5,
+      "e": 4.0,
+      "m": 3.0,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "有",
+      "role_card": {
+        "archetype": "现实主义",
+        "interests": [
+          "本土安全",
+          "贸易通道",
+          "区域主导"
+        ],
+        "red_lines": [
+          "本土遭常规打击",
+          "关键航道被封锁"
+        ],
+        "war_aim": "安全",
+        "domestic_constraint": "长期战争会削弱执政基础",
+        "strategic_objectives": [
+          "维护本土安全",
+          "保障贸易通道畅通",
+          "维护区域地位和影响力"
+        ],
+        "diplomatic_policy": null,
+        "ideology": {
+          "salience": null,
+          "orientation": null
+        }
+      }
+    },
+    {
+      "country_id": "C2",
+      "name": "砾国",
+      "c": 3.0,
+      "e": 2.5,
+      "m": 2.5,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "无",
+      "role_card": {
+        "archetype": "民族主义",
+        "interests": [
+          "本土安全",
+          "避免战败"
+        ],
+        "red_lines": [
+          "割让领土"
+        ],
+        "war_aim": "安全",
+        "domestic_constraint": "资源有限，难以长期作战",
+        "strategic_objectives": [
+          "维护本土安全",
+          "避免战争失败及其后果"
+        ],
+        "diplomatic_policy": null,
+        "ideology": {
+          "salience": null,
+          "orientation": null
+        }
+      }
+    },
+    {
+      "country_id": "C3",
+      "name": "森国",
+      "c": 3.5,
+      "e": 3.5,
+      "m": 4.0,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "二次核打击",
+      "role_card": {
+        "archetype": "国际主义",
+        "interests": [
+          "区域秩序",
+          "联盟信誉",
+          "防止核扩散"
+        ],
+        "red_lines": [
+          "盟友遭入侵"
+        ],
+        "war_aim": "地位",
+        "domestic_constraint": "公众对海外用兵敏感",
+        "strategic_objectives": [
+          "维护区域秩序",
+          "维护联盟信誉",
+          "推动防止核扩散"
+        ],
+        "diplomatic_policy": null,
+        "ideology": {
+          "salience": null,
+          "orientation": null
+        }
+      }
+    },
+    {
+      "country_id": "C4",
+      "name": "屿国",
+      "c": 2.0,
+      "e": 2.0,
+      "m": 1.5,
+      "rep": 0.0,
+      "cred": 0.0,
+      "nuclear_status": "无",
+      "role_card": {
+        "archetype": "进步主义",
+        "interests": [
+          "避免战争",
+          "多边机制",
+          "经济恢复"
+        ],
+        "red_lines": [
+          "本土成为战场"
+        ],
+        "war_aim": "安全",
+        "domestic_constraint": "军力薄弱",
+        "strategic_objectives": [
+          "避免战争波及本土",
+          "维护多边机制",
+          "促进本国经济恢复"
+        ],
+        "diplomatic_policy": null,
+        "ideology": {
+          "salience": null,
+          "orientation": null
+        }
+      }
+    }
+  ],
+  "initial_wars": [],
+  "threat_observation_enabled": true
+}

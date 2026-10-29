@@ -1,0 +1,63 @@
+{
+  "name": "三国战略竞争",
+  "description": "三个国家围绕地区秩序、安全与影响力展开同时博弈。各国可以发动战争、进行核打击、干涉已有战争或呼吁和平。",
+  "polarity": "多极",
+  "system_environment": "紧张/复杂",
+  "max_rounds": 8,
+  "countries": [
+    {
+      "name": "Alpha",
+      "c": 4,
+      "e": 5,
+      "m": 5,
+      "nuclear_status": "second_strike",
+      "nuclear_reach": ["Beta", "Gamma"],
+      "profile": {
+        "strategic_culture": "现实主义",
+        "ideology": "包容",
+        "threat_perception": "中",
+        "foreign_policy": "维持现状",
+        "war_aim": "安全",
+        "stakeholders": ["Beta", "Gamma"],
+        "goal": "维护现有地区秩序，防止任何国家获得压倒性优势。",
+        "geography": "与Beta接壤，与Gamma隔海相望。"
+      }
+    },
+    {
+      "name": "Beta",
+      "c": 5,
+      "e": 4,
+      "m": 4,
+      "nuclear_status": "full",
+      "nuclear_reach": ["Alpha", "Gamma"],
+      "profile": {
+        "strategic_culture": "民族主义",
+        "ideology": "狂热",
+        "threat_perception": "急迫",
+        "foreign_policy": "帝国主义",
+        "war_aim": "地位",
+        "stakeholders": ["Alpha", "Gamma"],
+        "goal": "打破Alpha主导的地区秩序并取得更高国际地位。",
+        "geography": "与Alpha和Gamma均有陆地边界。"
+      }
+    },
+    {
+      "name": "Gamma",
+      "c": 3,
+      "e": 3,
+      "m": 3,
+      "nuclear_status": "none",
+      "nuclear_reach": [],
+      "profile": {
+        "strategic_culture": "进步主义",
+        "ideology": "包容",
+        "threat_perception": "缓和",
+        "foreign_policy": "维持现状",
+        "war_aim": "利益",
+        "stakeholders": ["Alpha", "Beta"],
+        "goal": "避免成为大国竞争的牺牲品，并通过调停扩大自主空间。",
+        "geography": "与Beta接壤，依赖经过Alpha控制海域的贸易。"
+      }
+    }
+  ]
+}

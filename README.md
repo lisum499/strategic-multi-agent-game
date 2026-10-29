@@ -1,61 +1,58 @@
 # Strategic Multi-Agent Game
 
-一个面向本地LLM的三国战略博弈最小实现。国家同时密封提交预测、公开宣称和实际
-行动；确定性状态机统一校验、揭示和结算，公开记录与私有审计记录分离保存。
+虚构国家的战略多智能体模拟。整合 `noclear/simulation_v2` 的 v4.1 零和计分、危机阶段、目标卡、日志与回放，以及本项目的整轮密封决策和本地模型接入。
 
-## 功能
+每轮国家基于同一轮初始信息，同时提交预测、公开宣称、实际行动和谈判承诺；全部提交完成后统一揭示并结算。模型请求可以重试，但不会在看到对手当轮宣称后改选。失败达到上限时由系统补充默认和平，并明确记录来源。
 
-- 四类行动：常规战争、核打击、干涉、呼吁和平
-- Pydantic结构化决策和合法性校验
-- 同轮信息隔离、并发决策、统一结算和事务回滚
-- C/E/M、声誉、可信度、战争、死亡、胜利与僵局判定
-- 固定随机种子，可复现实验
-- 支持vLLM等OpenAI兼容本地接口
+## 安装与离线运行
 
-## 安装
+需要 Python 3.11 或以上。
 
 ```bash
-git clone https://github.com/lisum499/strategic-multi-agent-game.git
-cd strategic-multi-agent-game
-python -m venv .venv
+python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
-```
-
-## 运行
-
-先启动本地模型，例如：
-
-```bash
-vllm serve <MODEL_PATH> \
-  --served-model-name qwen3-4b-local \
-  --port 8000 \
-  --gpu-memory-utilization 0.70
-```
-
-再启动博弈：
-
-```bash
-.venv/bin/strategic-game \
-  --base-url http://127.0.0.1:8000/v1 \
-  --model qwen3-4b-local \
-  --rounds 100 \
-  --seed 42
-```
-
-不调用模型的快速验证：
-
-```bash
-.venv/bin/strategic-game --mock --rounds 20
+.venv/bin/strategic-game run --provider mock --rounds 4
 .venv/bin/pytest -q
 ```
 
-结果写入 `output/public.json` 和 `output/private.json`。默认连续12轮全体一般和平且
-没有活动战争时终止；使用 `--stalemate-rounds 0` 可禁用。
+默认场景为七国危机 v4.1。`mock` 是固定算法响应，只验证程序流程。兼容旧命令形状 `strategic-game --mock --rounds 4`；旧三国场景可以通过 `--scenario scenarios/default_three_states.json` 显式加载，加载时会记录国家名称到稳定 ID 的映射。
 
-## 目录
+## 真实模型
 
-```text
-src/strategic_game/   状态、规则、Agent、状态机和CLI
-scenarios/            三国场景配置
-tests/                规则与完整流程测试
+DeepSeek：
+
+```bash
+export DEEPSEEK_API_KEY='...'
+.venv/bin/strategic-game run --provider deepseek --model deepseek-flash --rounds 2
 ```
+
+OpenAI 兼容本地服务，例如已启动的 vLLM：
+
+```bash
+.venv/bin/strategic-game run --provider openai \
+  --base-url http://127.0.0.1:8000/v1 --model qwen3-4b-local --rounds 2
+```
+
+`--max-workers 7` 控制国家请求并发数；`--retries 3` 表示首次尝试后最多再重试三次。`--temperature`、`--max-tokens`、`--timeout` 控制模型请求。真实接口的可用性和模型行为需要在实际环境中验证。种子控制规则随机数和选项顺序，当前真实请求不传模型 seed；确定性回放以已保存决策为输入，不保证重新请求真实模型逐字一致。
+
+## 运行记录与回放
+
+输出默认写入当前工作目录的 `runs/<运行目录>/`，可用 `--out <尚不存在的目录>` 指定。`run.json` 保存完整研究记录；`report.html` 和 `report.md` 用于查看每轮决策、结算和诊断。完整记录与报告含角色卡、私人观察和预测，按研究者资料保存。`public.json` 只导出公开状态、已揭示行动和系统补充行动来源，供公开分析使用。
+
+```bash
+.venv/bin/strategic-game replay runs/<运行目录>/run.json
+.venv/bin/strategic-game replay runs/<运行目录>/run.json --report
+.venv/bin/strategic-game replay <旧记录.json> --show-only
+```
+
+发生默认和平或环境摘要最终失败时，运行标为 `completed_with_errors` 并返回非零退出码，记录仍可查看和回放。旧两阶段记录或原三国程序记录可展示保存摘要，不能当作新密封协议的精确回放。
+
+## 规则与结构
+
+- [整合说明与数据接口](docs/整合说明.md)
+- [v4.1 危机机制](docs/游戏规则-v4.1.md)
+- `src/strategic_game/`：领域状态、密封决策、v4.1 结算、模型适配、日志与报告。
+- `scenarios/`：可编辑的示例场景；安装包同时包含默认场景资源。
+- `tests/`：规则、密封信息隔离、默认和平、迁移及回放检查。
+
+场景和数值均为虚构研究设定。v4.1 中的数值和危机参数属于模型设计，输出不能视为现实国家行为预测。

@@ -1,0 +1,229 @@
+{
+  "rules_version": "v4.1",
+  "card_format": "v4.1",
+  "content_sha256": "ec3884c814ba81ed284d30e36b5b7d5d70f02d72f7aeb66f9804e4a3a54f0360",
+  "generated_by": "strategic_game.tools.gen_rule_card",
+  "card_file": "strategic_game/prompts/v2.1/20-规则卡-v2.0.md",
+  "constants": {
+    "action_types": [
+      "war",
+      "nuclear",
+      "intervene",
+      "peace"
+    ],
+    "action_labels_zh": {
+      "war": "常规战争",
+      "nuclear": "核使用",
+      "intervene": "干涉",
+      "peace": "和平"
+    },
+    "phases": [
+      "commitment",
+      "revealed",
+      "resolved"
+    ],
+    "scoring": {
+      "score_formula": "净 C/E/M 转移（相对开局；声誉/可信度不计分）",
+      "score_conservation": "全局净积分之和恒为 0",
+      "non_scoring_signals": [
+        "rep",
+        "cred"
+      ],
+      "stat_ceiling": 5.0,
+      "stat_floor": 0.0,
+      "half_point_step": 0.5,
+      "rep_cred_min": -5.0,
+      "rep_cred_max": 5.0,
+      "rep_cred_initial": 0.0,
+      "victory_margin_strictly_greater_than": 5.0
+    },
+    "death_rule": "批次结算后任一 C/E/M < 0 死亡退出；= 0 存活；死亡后不再参与后续阶段",
+    "win_rule": "存活国家中净积分严格高于第二名 5 点者获胜；仅剩一国则该国胜；最高分并列无胜者；到回合上限无人达标为未决。全局净积分之和恒为 0",
+    "flow": {
+      "phases": [
+        "commitment",
+        "revealed",
+        "resolved"
+      ],
+      "first_round_nuclear_ban": true,
+      "declaration_then_action": false,
+      "target_fixed_across_phases": true,
+      "decision_protocol": "sealed_v1",
+      "failure_policy": "peace_fallback_v1",
+      "negotiation_precommitted": true,
+      "new_war_per_choice": 1
+    },
+    "reputation": {
+      "war": -2.0,
+      "nuclear": -3.0,
+      "peace": 1.0,
+      "no_war_peace": 0.0,
+      "crisis_agreement": 1.0,
+      "intervene_support_weak": 2.0,
+      "intervene_support_strong": -1.0,
+      "intervene_equal_strength": 0.0
+    },
+    "reputation_strength_basis": "战斗阶段开始快照按双方 C+E+M 比较；相等为 0",
+    "reputation_nuclear_exception": "防守方在双方既有战争中使用 nuclear，且非双方同时使用：该次不扣 nuclear 声誉",
+    "credibility_matrix": {
+      "war": {
+        "war": 1,
+        "nuclear": -2,
+        "intervene": -1,
+        "peace": -1
+      },
+      "nuclear": {
+        "war": -1,
+        "nuclear": 1,
+        "intervene": -1,
+        "peace": -1
+      },
+      "intervene": {
+        "war": -1,
+        "nuclear": -2,
+        "intervene": 1,
+        "peace": -1
+      },
+      "peace": {
+        "war": -2,
+        "nuclear": -3,
+        "intervene": -2,
+        "peace": 1
+      }
+    },
+    "credibility_rules": {
+      "exact_match": 1,
+      "same_type_different_binding": -1,
+      "different_target": "非法，不能提交",
+      "not_executed": "无实际执行时不计分；行动被取消按实际执行结果计分"
+    },
+    "war": {
+      "duration_rounds": 2,
+      "new_war_counts_as_round": 1,
+      "settle_at_end_of_round": 2,
+      "draw": "战力相同则战争结束，双方无常规战果",
+      "target_peace_attacker_s_bonus": 1.0,
+      "winner_transfer": 2.0,
+      "loser_transfer": -2.0,
+      "defender_power_multiplier": 1.0,
+      "power_random_band": 0.1,
+      "draw_effect": 0.0
+    },
+    "intervene": {
+      "duration_rounds": 1,
+      "applies_to": "战斗阶段开始时已存在、且经 nuclear/peace 结算后仍存在的战争；本轮新开战不可被干涉",
+      "success_condition": "支持方在该战本轮常规结算中获胜；平局或未获胜算失败",
+      "success_transfer": 0.5,
+      "failure_transfer": 1.0,
+      "target_penalty_each": -0.5,
+      "no_settlement": "战争本轮不结算时，干涉不计成功或失败",
+      "voided_if_war_ends": "战争被提前结束则干涉取消，不产生声誉/伤害/成败变化"
+    },
+    "peace": {
+      "reputation": 1.0,
+      "no_war_reputation": 0.0,
+      "no_war_credibility": 0,
+      "crisis_agreement_reputation": 1.0,
+      "crisis_agreement_credibility": 1,
+      "no_war_effect": "v3.0：常规表态，声誉/可信度 0；若双方在同一轮相互和平并达成危机安排，各 +1/+1",
+      "attacker_peace": "战争立即结束、进攻方随机一项 -1、视为防守方获胜",
+      "defender_peace": "进入单独谈判：防守方报价，进攻方接受或拒绝",
+      "both_peace": "双方同时提出和平时，按进攻方和平处理一次",
+      "accept_effect": "执行方案并结束该战争，不再另算常规战果",
+      "negotiation_zero_sum": "攻方所得与守方所失逐项相等；谈判是纯转移"
+    },
+    "nuclear": {
+      "target_random_one": -2.0,
+      "no_war_effect": "仅造成目标 -2 与声誉变化",
+      "target_transfer": 2.0,
+      "user_fallout_transfer": 1.0,
+      "attacker_war_note": "战争立即判定使用者胜；目标净损失、使用者净收益，总和为 0",
+      "defender_war_reputation_exempt": true,
+      "simultaneous": "两次核伤害都生效；无单方胜利奖励；双方均按普通 nuclear 扣声誉；战争结束",
+      "requires_nuclear_status": true
+    },
+    "negotiation": {
+      "step": 0.5,
+      "attacker_gain_min": 0.0,
+      "attacker_gain_max_each": 3.0,
+      "attacker_gain_max_sum": 3.0,
+      "defender_loss_min_each": -3.0,
+      "defender_loss_max_each": 0.0,
+      "defender_loss_min_sum": -3.0,
+      "attacker_decision": [
+        "accept",
+        "reject"
+      ],
+      "timeout": "无有效方案或超时则无协议、战争继续"
+    },
+    "legality_notes": [
+      "主要阶段必须声明一个目标国家；和平也要给目标",
+      "干涉在宣称阶段就要指明战争与支持的一方",
+      "目标国在两个阶段必须一致；行动类型可以改变",
+      "交战方在既有战争结束前不能新开常规战争；一次只新开一场",
+      "干涉不能支持自己，干涉国本轮不得是该场战争的交战方",
+      "目标国不能是自己，也不能是已退出国家"
+    ],
+    "settlement_steady_state": [
+      "nuclear 先结算",
+      "被 nuclear 结束的战争上的 peace/intervene 作废",
+      "本轮新开的战争不可被干涉",
+      "干涉的成败只在该战本轮结算时计算"
+    ],
+    "crisis": {
+      "stages": [
+        "crisis",
+        "war",
+        "stalemate",
+        "resolved"
+      ],
+      "grace_rounds": 2,
+      "war_stage_cost": "固定基础成本/轮，不随等级升级",
+      "stalemate_level_penalty": 1,
+      "stage_schedule": "危机阶段第 3/5/7/9 轮各升一级；战争阶段只按 0.5/轮固定收取、不升级、最长 2 轮；打平或谈判失败进入停滞阶段、成本恢复并升一级",
+      "default_unresolved_cost": {
+        "parties": {
+          "c": -0.5
+        },
+        "dependents": {
+          "e": -0.5
+        },
+        "others": {
+          "rep": -0.2
+        }
+      },
+      "default_control_bonus": {
+        "e": 0.5
+      },
+      "costs_are_transfers": "未解决成本从承担方转移给控制方（同一 C/E/M 项）；控制方获得标的收益",
+      "resolve_rule": "满足任一条件则危机解决：双方当事国本轮均对彼此执行有效和平（共同安排，控制权不变）；或当事国之间战争结束并出现胜者（胜者取得控制权）；控制方死亡时控制权转移",
+      "escalation": "未解决时在场景指定轮次提升等级；成本乘以场景给的倍率",
+      "events": "每次成本与升级都生成公开事件，写明原因"
+    },
+    "objectives": {
+      "types": [
+        "goal",
+        "red_line"
+      ],
+      "goal": "条件首次成立时立即获得奖励，只计一次",
+      "red_line": "条件首次成立时检查本国本轮实际行动：若未采取 response_actions 中的类型，扣分；只计一次",
+      "condition_keys": [
+        "control_is",
+        "crisis_resolved",
+        "crisis_level_at_least",
+        "attacked_by_any",
+        "war_any",
+        "any_of",
+        "all_of",
+        "stage_is",
+        "resolution_is",
+        "stalled_rounds_at_least"
+      ],
+      "score_effects": "只改变 C/E/M/声誉/可信度；C/E/M 奖励/惩罚必须声明来源/去向，成对转移",
+      "transfer_fields": [
+        "reward_from",
+        "penalty_to"
+      ]
+    }
+  }
+}

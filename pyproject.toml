@@ -4,11 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "strategic-multi-agent-game"
-version = "0.1.0"
-description = "Sealed simultaneous multi-agent strategic game for local LLMs"
+version = "0.2.0"
+description = "v4.1 zero-sum crisis simulation with sealed simultaneous decisions"
 requires-python = ">=3.11"
 dependencies = [
-  "openai>=1.0",
   "pydantic>=2.8",
 ]
 
@@ -20,6 +19,9 @@ strategic-game = "strategic_game.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+strategic_game = ["scenarios/*.json", "knowledge/*.json", "knowledge/*.md", "prompts/*.md", "prompts/**/*.md", "prompts/**/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
