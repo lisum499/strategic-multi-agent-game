@@ -15,7 +15,8 @@
 ## 安装
 
 ```bash
-cd /home/liumw26/strategic-multi-agent-game
+git clone https://github.com/lisum499/strategic-multi-agent-game.git
+cd strategic-multi-agent-game
 python -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 ```
@@ -25,7 +26,7 @@ python -m venv .venv
 先启动本地模型，例如：
 
 ```bash
-vllm serve /home/liumw26/models/Qwen3-4B-Instruct \
+vllm serve <MODEL_PATH> \
   --served-model-name qwen3-4b-local \
   --port 8000 \
   --gpu-memory-utilization 0.70
