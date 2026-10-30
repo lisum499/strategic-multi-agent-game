@@ -2,9 +2,9 @@
 from __future__ import annotations
 import copy, hashlib, html, json
 from pathlib import Path
-from . import v5_protocol as protocol, v5_rules as rules, v5_alliances as alliances
+from . import protocol as protocol, rules as rules, alliances as alliances
 
-DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'v5_three_states.json')
+DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'three_states.json')
 
 def public_state(state):
     return {'round': state['round'], 'countries': {k: {'name': v['name'], 'territory': v['territory'], 'alive': v['alive']} for k,v in state['countries'].items()},
@@ -129,5 +129,9 @@ def fingerprint():
     h = hashlib.sha256()
     for module in (rules, protocol, alliances): h.update(Path(module.__file__).read_bytes())
     h.update(Path(__file__).read_bytes())
-    h.update((Path(__file__).parent / 'scenarios' / 'v5_rules.json').read_bytes())
     return h.hexdigest()
+
+
+def config_fingerprint(config):
+    encoded = json.dumps(config, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()

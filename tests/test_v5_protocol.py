@@ -1,7 +1,7 @@
 import copy
 import json
 import unittest
-from strategic_game.v5_protocol import (V5ValidationError, build_prompts, legal_actions,
+from strategic_game.protocol import (V5ValidationError, build_prompts, legal_actions,
     make_fallback, validate_decision, validate_scenario)
 
 class ProtocolTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class ProtocolTests(unittest.TestCase):
         data['borrows'] = [{'from_id':'B','conventional':10,'nuclear':0}]
         data['actions'] = [{'target_id':'B','action_id':'军事示威','conventional':90,'nuclear':0}]
         validate_decision(data, self.situation)
-    def test_prompt_has_v5_rules_and_alliance_contract(self):
+    def test_prompt_has_rules_and_alliance_contract(self):
         _, user = build_prompts(self.situation)
         for key in ('offer_return','counter_offer','军事示威','借入方','行动前'):
             self.assertIn(key, user)

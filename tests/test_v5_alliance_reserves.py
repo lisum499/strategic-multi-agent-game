@@ -1,5 +1,5 @@
 import unittest
-from strategic_game import v5_alliances as a
+from strategic_game import alliances as a
 
 def setup():
     s={'round':1,'countries':{x:{'alive':True,'conventional':30,'nuclear':0} for x in ('A','B','C')},'conflicts':{x:{} for x in ('A','B','C')}}

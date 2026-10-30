@@ -1,249 +1,234 @@
-"""Validate a single sealed package against its immutable request context."""
+"""v5.0 sealed decision protocol: validation and prompt construction.
 
+The protocol only handles immutable round-start snapshots.  Domain settlement
+and alliance state changes are performed separately by the engine.
+"""
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
-from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
 
-from .models import DecisionPackage
-from .validation import (
-    ResponseError, _require_keys, _validate_changes, _validate_threat_observation,
-    parse_json, sanitize_statement,
-)
+from .rules import DEFAULT_CONFIG, ACTUAL_NUCLEAR
+from .alliances import validate_decision_fields
 
-PROTOCOL_VERSION = "sealed_v1"
-_STATS = ("c", "e", "m")
-_FIELDS = {
-    "round", "country_id", "snapshot_hash", "forecast", "declaration",
-    "execution", "private_rationale", "negotiation",
-}
+NUCLEAR_USE = ACTUAL_NUCLEAR
+NUCLEAR_ACTIONS = frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁', *ACTUAL_NUCLEAR, '战略核威胁', '最后核警告'})
 
 
-def _half_number(value: Any, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ResponseError(f"{label} 必须是数字")
-    value = float(value)
-    if not math.isfinite(value) or not 0 <= value <= 3:
-        raise ResponseError(f"{label} 必须是 0..3 的有限数字")
-    if abs(value * 2 - round(value * 2)) > 1e-9:
-        raise ResponseError(f"{label} 必须是 0.5 的整数倍")
+
+class V5ValidationError(ValueError):
+    """A scenario or model response violates the v5 protocol."""
+
+
+def _number(value: Any, path: str, *, lo: float = 0, hi: float | None = None) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise V5ValidationError(f'{path} 必须是有限数字')
+    if value < lo or (hi is not None and value > hi):
+        raise V5ValidationError(f'{path} 超出范围')
+    return float(value)
+
+
+def _text(value: Any, path: str, *, limit: int = 3000, allow_empty: bool = False) -> str:
+    if not isinstance(value, str) or len(value) > limit or (not allow_empty and not value.strip()):
+        raise V5ValidationError(f'{path} 必须为长度不超过 {limit} 的文本')
     return value
 
 
-def _policy(value: Any, mode: str, context: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ResponseError("谈判政策必须是对象")
-    role = context["role"]
-    if mode == "offers":
-        valid = {offer["offer_id"] for offer in context["offers"]}
-        if role == "defender":
-            _require_keys(value, {"offer_id"})
-            if not isinstance(value["offer_id"], str) or value["offer_id"] not in valid:
-                raise ResponseError("谈判 offer_id 不在本次方案中")
-            return {"offer_id": value["offer_id"]}
-        if role == "attacker":
-            _require_keys(value, {"accept_offer_ids"})
-            ids = value["accept_offer_ids"]
-            if (not isinstance(ids, list) or not all(isinstance(x, str) for x in ids)
-                    or len(ids) != len(set(ids)) or not set(ids) <= valid):
-                raise ResponseError("accept_offer_ids 必须是无重复的合法方案 ID 数组")
-            return {"accept_offer_ids": list(ids)}
-    elif mode == "self_offer":
-        if role == "defender":
-            _require_keys(value, {"changes"})
-            return {"changes": _validate_changes(value["changes"])}
-        if role == "attacker":
-            _require_keys(value, {"accept", "min_total_gain", "min_gains"})
-            if not isinstance(value["accept"], bool):
-                raise ResponseError("negotiation.accept 必须是布尔值")
-            gains = value["min_gains"]
-            if not isinstance(gains, dict) or set(gains) != set(_STATS):
-                raise ResponseError("min_gains 必须且只能有 c/e/m 三项")
-            minimum = {k: _half_number(gains[k], f"min_gains.{k}") for k in _STATS}
-            total = _half_number(value["min_total_gain"], "min_total_gain")
-            if sum(minimum.values()) > 3:
-                raise ResponseError("min_gains 合计不能超过 3，否则不存在可接受合法报价")
-            return {"accept": value["accept"], "min_total_gain": total,
-                    "min_gains": minimum}
-    raise ResponseError(f"未知谈判模式或角色：{mode}/{role}")
+def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize a *new* v5 scenario without inferring old values."""
+    if not isinstance(scenario, dict) or scenario.get('rules_version') != 'v5.0':
+        raise V5ValidationError('场景必须明确指定 rules_version=v5.0')
+    state = copy.deepcopy(scenario)
+    countries = state.get('countries')
+    if not isinstance(countries, dict) or len(countries) < 2:
+        raise V5ValidationError('countries 必须包含至少两个国家，按国家 ID 索引')
+    for cid, country in countries.items():
+        _text(cid, '国家 ID', limit=100)
+        if not isinstance(country, dict):
+            raise V5ValidationError(f'{cid} 国家数据必须是对象')
+        _text(country.get('name'), f'{cid}.name', limit=200)
+        for k in ('territory', 'conventional', 'nuclear'):
+            _number(country.get(k), f'{cid}.{k}', hi=100)
+        if country['territory'] <= 0:
+            raise V5ValidationError(f'{cid} 初始领土必须大于0')
+        if country['conventional'] < float(state.get('rule_config', {}).get('nuclear_capability_threshold', DEFAULT_CONFIG['nuclear_capability_threshold'])) and country['nuclear'] > 0:
+            raise V5ValidationError(f'{cid} 初始常规力量低于70时不能初始配置核力量')
+        if not isinstance(country.get('alive', True), bool) or not country.get('alive', True):
+            raise V5ValidationError(f'{cid} 场景国家必须初始在场')
+        country.setdefault('alive', True)
+        country.setdefault('profile', '')
+        _text(country['profile'], f'{cid}.profile', allow_empty=True, limit=10000)
+    conflicts = state.setdefault('conflicts', {})
+    if not isinstance(conflicts, dict):
+        raise V5ValidationError('conflicts 必须是有方向的国家 ID 映射')
+    for src, values in conflicts.items():
+        if src not in countries or not isinstance(values, dict):
+            raise V5ValidationError('conflicts 来源无效')
+        for dst, amount in values.items():
+            if dst not in countries or src == dst:
+                raise V5ValidationError('conflicts 目标无效')
+            _number(amount, f'conflicts.{src}.{dst}')
+    state.setdefault('nuclear_used', [])
+    state.setdefault('threat_history', {})
+    state.setdefault('max_rounds', 30)
+    if not isinstance(state['max_rounds'], int) or isinstance(state['max_rounds'], bool) or not 1 <= state['max_rounds'] <= 30:
+        raise V5ValidationError('max_rounds 必须是1至30的整数')
+    return state
 
 
-def validate_package(raw: str | dict[str, Any], situation: dict[str, Any]
-                     ) -> tuple[dict[str, Any], list[str]]:
-    data = parse_json(raw) if isinstance(raw, str) else copy.deepcopy(raw)
-    if not isinstance(data, dict):
-        raise ResponseError("密封决策必须是 JSON 对象")
-    if "origin" in data:
-        raise ResponseError("origin 由引擎记录，模型不得提交")
-    expected = set(_FIELDS)
-    if "threat_observation_sources" in situation:
-        expected.add("threat_observation")
-    warnings: list[str] = []
-    _require_keys(data, expected, warnings=warnings)
-    data = {k: data[k] for k in expected}
-    if "threat_observation_sources" in situation and not isinstance(data.get("threat_observation"), dict):
-        raise ResponseError("threat_observation 必须是对象")
-    for key in ("declaration", "execution"):
-        choice = data[key]
-        if not isinstance(choice, dict):
-            raise ResponseError(f"{key} 必须是对象")
-        _require_keys(choice, {"option_id", "public_statement"}, warnings=warnings)
-        statement, notes = sanitize_statement(choice["public_statement"])
-        warnings.extend(notes)
-        data[key] = {"option_id": choice["option_id"], "public_statement": statement}
+def legal_actions(state: dict[str, Any], country_id: str, target_id: str, *, pending_nuclear: float = 0) -> list[dict[str, Any]]:
+    """Compute options from the immutable round-start state."""
+    countries = state['countries']
+    if country_id == target_id or country_id not in countries or target_id not in countries:
+        raise V5ValidationError('行动必须指定其他国家')
+    if not countries[country_id].get('alive', True) or not countries[target_id].get('alive', True):
+        raise V5ValidationError('行动双方必须在场')
+    level = float(state.get('conflicts', {}).get(country_id, {}).get(target_id, 0))
+    options = []
+    actions = state.get('rule_config', {}).get('actions', DEFAULT_CONFIG['actions'])
+    for name, raw_delta in actions.items():
+        delta = float(raw_delta)
+        if delta < 0 and level <= 0 and float(state.get('conflicts', {}).get(target_id, {}).get(country_id, 0)) <= 0:
+            continue
+        if name in NUCLEAR_ACTIONS and level < delta:
+            continue
+        if name in NUCLEAR_USE and float(countries[country_id]['nuclear']) + pending_nuclear <= 0:
+            continue
+        options.append({'action_id': name, 'delta': delta})
+    return options
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def snapshot_hash(view: dict[str, Any]) -> str:
+    return hashlib.sha256(_canonical(view).encode('utf-8')).hexdigest()
+
+
+def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> dict[str, Any]:
+    """Check model output against the exact round-start private situation.
+
+    Alliance field item structure is checked by the alliance subsystem, which
+    knows the private invitations and treaties. This function checks that each
+    field is an array and does not coerce the contents.
+    """
     try:
-        package = DecisionPackage.model_validate(data).model_dump(exclude_none=True)
-    except ValidationError as exc:
-        details = "; ".join(
-            f"{'.'.join(str(k) for k in item['loc'])}: {item['msg']}"
-            for item in exc.errors())
-        raise ResponseError(f"密封决策字段无效：{details}") from None
-    if (package["round"] != situation["round"]
-            or package["country_id"] != situation["self"]["country_id"]
-            or package["snapshot_hash"] != situation["snapshot_hash"]):
-        raise ResponseError("决策的回合、国家或快照与本次请求不一致")
-    declarations = {x["option_id"]: x for x in situation["legal_declarations"]}
-    declared = declarations.get(package["declaration"]["option_id"])
-    if declared is None:
-        raise ResponseError("declaration.option_id 不在本次合法宣称中")
-    executions = {x["option_id"]: x for x in declared["execution_options"]}
-    executed = executions.get(package["execution"]["option_id"])
-    if executed is None:
-        raise ResponseError("execution.option_id 不在所选宣称的合法行动中")
-    if declared["target_country_id"] != executed["target_country_id"]:
-        raise ResponseError("宣称和行动必须指向同一目标国")
+        data = json.loads(data) if isinstance(data, str) else copy.deepcopy(data)
+    except (ValueError, TypeError):
+        raise V5ValidationError('决策必须是合法 JSON') from None
+    if not isinstance(data, dict):
+        raise V5ValidationError('决策必须是对象')
+    required = {'round','country_id','snapshot_hash','assessment','forecast','declaration',
+                'rationale','actions','alliance_invites','alliance_responses',
+                'alliance_breaks','borrows','returns'}
+    if set(data) != required:
+        raise V5ValidationError(f'决策字段不匹配：缺少 {sorted(required-set(data))}；多余 {sorted(set(data)-required)}')
+    for key in ('round', 'country_id', 'snapshot_hash'):
+        if data[key] != situation[key] or (key == 'round' and type(data[key]) is not int):
+            raise V5ValidationError(f'{key} 与本轮快照不符')
+    for key in ('assessment','forecast','rationale'):
+        _text(data[key], key)
+    _text(data['declaration'], 'declaration', allow_empty=True)
+    try:
+        validate_decision_fields(data)
+    except ValueError as exc:
+        raise V5ValidationError(str(exc)) from None
+    actions = data['actions']
+    if not isinstance(actions, list):
+        raise V5ValidationError('actions 必须是数组')
+    country = situation['country_id']
+    state = situation['state']
+    seen = set()
+    pending_nuclear = sum(_number(b.get('nuclear', 0), 'borrows.nuclear') for b in data['borrows'] if isinstance(b, dict)) if isinstance(data['borrows'], list) else 0
+    conventional = nuclear = 0.0
+    for action in actions:
+        if not isinstance(action, dict) or set(action) != {'target_id','action_id','conventional','nuclear'}:
+            raise V5ValidationError('行动必须且只能包含 target_id、action_id、conventional、nuclear')
+        target = action['target_id']
+        if not isinstance(target, str) or target in seen:
+            raise V5ValidationError('每个对手至多指定一条行动')
+        seen.add(target)
+        allowed = {x['action_id'] for x in legal_actions(state, country, target, pending_nuclear=pending_nuclear)}
+        if not isinstance(action['action_id'], str) or action['action_id'] not in allowed:
+            raise V5ValidationError(f'{target} 行动不合法或行动前未达到门槛')
+        conventional += _number(action['conventional'], 'conventional')
+        nuclear += _number(action['nuclear'], 'nuclear')
+        if action['action_id'] in NUCLEAR_USE and action['nuclear'] <= 0:
+            raise V5ValidationError('实际核使用须投入大于零的核力量')
+    for k in ('alliance_invites','alliance_responses','alliance_breaks','borrows','returns'):
+        if not isinstance(data[k], list):
+            raise V5ValidationError(f'{k} 必须是数组')
+    own = state['countries'][country]
+    # Requested borrow is a provisional ceiling. The alliance/settlement step
+    # MUST revalidate against actually delivered funds before executing actions.
+    borrow_conventional = borrow_nuclear = 0.0
+    for borrow in data['borrows']:
+        if not isinstance(borrow, dict) or 'from_id' not in borrow or set(borrow) - {'from_id','conventional','nuclear'}:
+            raise V5ValidationError('borrows 项须包含 from_id、conventional、nuclear')
+        borrow_conventional += _number(borrow.get('conventional', 0), 'borrows.conventional')
+        borrow_nuclear += _number(borrow.get('nuclear', 0), 'borrows.nuclear')
+    if conventional > float(own['conventional']) + borrow_conventional + 1e-9 or nuclear > float(own['nuclear']) + borrow_nuclear + 1e-9:
+        raise V5ValidationError('同轮总投入超过本国可用力量与请求借兵合计')
+    return data
 
-    living = {c["country_id"] for c in situation["state"]["countries"] if c.get("alive", True)}
-    opponents = living - {package["country_id"]}
-    forecasts = package["forecast"]
-    ids = [x["country_id"] for x in forecasts]
-    if len(ids) != len(set(ids)) or set(ids) != opponents:
-        raise ResponseError("forecast 必须对每个存活对手各写且只写一条")
-    for forecast in forecasts:
-        if forecast["target_country_id"] not in living:
-            raise ResponseError("预测目标必须是存活国家")
-        if (forecast["action_type"] != "peace"
-                and forecast["target_country_id"] == forecast["country_id"]):
-            raise ResponseError("不能预测对手对自身采取敌对行动")
 
-    contexts = situation.get("negotiation_contexts", {})
-    if set(package["negotiation"]) != set(contexts):
-        raise ResponseError("negotiation 必须与本次提供的战争 ID 完全一致")
-    package["negotiation"] = {
-        war_id: _policy(package["negotiation"][war_id], situation["negotiation_mode"], context)
-        for war_id, context in contexts.items()
+def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
+    """Return complete v5 protocol instructions for a pre-filtered country view.
+
+    Caller must pass a country-specific view with private fields of other
+    countries removed; never pass raw research state here.
+    """
+    system = (
+        '你扮演虚构国家，先评估现状、再预测其他国家、最后密封提交声明和行动。'
+        '各国在相同轮初状态同时决策，不能看到他国当轮未公开的声明或行动；'
+        '声明可为真假消息，必须区分声称与公开事实。只返回 JSON，不能有解释。'
+    )
+    config = {**DEFAULT_CONFIG, **situation['state'].get('rule_config', {})}
+    rules = {
+        '行动菜单与增量': config['actions'],
+        '完整可调数值参数': config,
+        '回合': '评估、预测、公开声明、私有理由、对各对手的行动；全部国家密封提交后统一揭示并结算。',
+        '冲突': '各国对每个目标独立累计冲突值，行动数值为增减量，下限0上不封顶；值为0不得降级。各场战斗仅双方直接参加，但一国可同时对多个对手行动。',
+        '核资格': '选择核信号、核预备、核示威、核威胁或核使用等行动前，累计值必须达到行动对应数值；有限核武器使用、升级性核行动、扩大核打击行动和战略核战争为实际核使用，须拥有并投入核力量。战略核威胁和最后核警告仅是威胁；达到门槛只产生资格，不自动使用。',
+        '领土': f"行动后按双边累计值比较、差值进行领土转移；核使用对常规时系数取1+min(差值/{config['nuclear_territory_scale']},{config['nuclear_territory_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮增量按{config['threat_effect']}计入领土，本轮以后的领土计算不再计该威胁增量。",
+        '结算': '领土支付方按国家ID升序逐个结算，每方同时按比例支付给多个胜方；不足则其领土归零并退场。仅实际已经收到的同轮收益可用于结算；退场国后续不再获得领土。',
+        '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",
+        '胜负': f"先退场后胜利。领土至少{config['territory_win_min']}且领先最强对手至少{config['territory_win_gap']}获胜；仅剩一国在场获胜；第{config['max_rounds']}回合无人胜利、全部退场或双方互相投降则无胜者。",
+        '盟约': '邀请先仅双方可见，受邀国下轮接受；达成后只公开双方已结盟，所有盟约内容、是否借兵及数值均对他国保密。借兵及返还不是保证，借入方可以不还，其剩余力量归借入方；实际借调在结算时以可用数额和盟约为准。',
+        '军力': '各目标投入的常规与核力量加总不得超过本国可用力量和实际成功借调的力量；请求借入不保证成功，实际不足时不可执行超额投入。',
     }
-    if "threat_observation_sources" in situation:
-        package["threat_observation"] = _validate_threat_observation(
-            package["threat_observation"], situation, warnings)
-    return package, warnings
+    amounts = {'conventional': 0, 'nuclear': 0}
+    schema = {
+        'round': situation['round'], 'country_id': situation['country_id'],
+        'snapshot_hash': situation['snapshot_hash'],
+        'assessment': '当前局势和可信度评估', 'forecast': '对其他国家行动和结果的预测',
+        'declaration': '公开声明，可以为空或发表真假声明', 'rationale': '私有简短决策依据',
+        'actions': [{'target_id': '对手国家ID', 'action_id': '行动名称', **amounts}],
+        'alliance_invites': [{'target_id': '国家ID', 'offer': amounts, 'request': amounts,
+                              'offer_return': amounts, 'request_return': amounts}],
+        'alliance_responses': [{'invite_id': '邀请ID', 'accept': True,
+                                'counter_offer': amounts, 'counter_return': amounts}],
+        'alliance_breaks': [{'target_id': '国家ID'}],
+        'borrows': [{'from_id': '盟国ID', **amounts}],
+        'returns': [{'to_id': '盟国ID', **amounts, 'close': False}],
+    }
+    return system, ('以下是本国轮初可见信息：\n' + _canonical(situation)
+                    + '\n本局规则：\n' + _canonical(rules)
+                    + '\n字段和格式如下，各数组可为空；不得添加字段：\n' + _canonical(schema))
 
 
 def make_fallback(situation: dict[str, Any]) -> dict[str, Any]:
-    """Produce an explicitly engine-owned peace package from the request's legal menu."""
-    pairs = [(declaration, execution)
-                 for declaration in situation["legal_declarations"]
-                 if declaration["action_type"] == "peace"
-                 for execution in declaration["execution_options"]
-                 if execution["action_type"] == "peace"]
-    if not pairs:
-        raise ResponseError("本次请求没有合法的默认和平组合")
-    declaration, execution = min(pairs, key=lambda pair: (pair[0]["target_country_id"], pair[0].get("war_id") or "", pair[1].get("war_id") or ""))
-    own = situation["self"]["country_id"]
-    package: dict[str, Any] = {
-        "round": situation["round"], "country_id": own,
-        "snapshot_hash": situation["snapshot_hash"],
-        "forecast": [
-            {"country_id": c["country_id"], "action_type": "peace",
-             "target_country_id": own, "confidence": "low",
-             "miscalculation_risk": "系统默认值，不是模型预测"}
-            for c in situation["state"]["countries"]
-            if c["country_id"] != own and c.get("alive", True)
-        ],
-        "declaration": {"option_id": declaration["option_id"], "public_statement": ""},
-        "execution": {"option_id": execution["option_id"], "public_statement": ""},
-        "private_rationale": "SYSTEM_FALLBACK: 决策生成或校验失败，使用引擎默认和平行动。",
-        "negotiation": {},
+    """No-action fallback; preserve explicit distinction from model decisions."""
+    return {
+        'round': situation['round'], 'country_id': situation['country_id'],
+        'snapshot_hash': situation['snapshot_hash'],
+        'assessment': '系统默认，无有效评估', 'forecast': '系统默认，无有效预测',
+        'declaration': '', 'rationale': 'SYSTEM_FALLBACK', 'actions': [],
+        'alliance_invites': [], 'alliance_responses': [], 'alliance_breaks': [],
+        'borrows': [], 'returns': [],
     }
-    for war_id, context in situation.get("negotiation_contexts", {}).items():
-        if situation["negotiation_mode"] == "offers":
-            if context["role"] == "attacker":
-                policy = {"accept_offer_ids": []}
-            else:
-                zero = next((offer for offer in context["offers"]
-                             if all(v == 0 for side in offer["changes"].values()
-                                    for v in side.values())), None)
-                if zero is None:
-                    raise ResponseError("默认和平谈判需要零转移报价")
-                policy = {"offer_id": zero["offer_id"]}
-        elif context["role"] == "attacker":
-            policy = {"accept": False, "min_total_gain": 0.0,
-                      "min_gains": {k: 0.0 for k in _STATS}}
-        else:
-            policy = {"changes": {side: {k: 0.0 for k in _STATS}
-                                   for side in ("attacker", "defender")}}
-        package["negotiation"][war_id] = policy
-    if "threat_observation_sources" in situation:
-        package["threat_observation"] = {
-            "target_country_id": None, "level": "未知", "basis": "系统默认，无有效模型判断",
-            "source_ids": [],
-        }
-    return validate_package(package, situation)[0]
-
-
-def match_negotiation(mode: str, defender_policy: dict[str, Any],
-                      attacker_policy: dict[str, Any], context: dict[str, Any]
-                      ) -> tuple[dict[str, Any], bool]:
-    """Resolve already sealed policies without contacting either model."""
-    defender = _policy(defender_policy, mode, {**context, "role": "defender"})
-    attacker = _policy(attacker_policy, mode, {**context, "role": "attacker"})
-    if mode == "offers":
-        offer = next(x for x in context["offers"] if x["offer_id"] == defender["offer_id"])
-        return copy.deepcopy(offer), offer["offer_id"] in attacker["accept_offer_ids"]
-    offer = {"offer_id": "SELF", "label": "密封自提方案", "changes": defender["changes"]}
-    gains = offer["changes"]["attacker"]
-    accepted = (attacker["accept"]
-                and sum(gains.values()) >= attacker["min_total_gain"]
-                and all(gains[k] >= attacker["min_gains"][k] for k in _STATS))
-    return offer, bool(accepted)
-
-
-def build_sealed_prompts(situation: dict[str, Any]) -> tuple[str, str]:
-    from .tools.render_user import build_system
-    system = build_system()
-    schema: dict[str, Any] = {
-        "round": situation["round"], "country_id": situation["self"]["country_id"],
-        "snapshot_hash": situation["snapshot_hash"],
-        "forecast": [{"country_id": "每个存活对手的ID", "action_type": "war|nuclear|intervene|peace",
-                      "target_country_id": "存活国家ID", "confidence": "high|medium|low",
-                      "miscalculation_risk": "简短风险判断"}],
-        "declaration": {"option_id": "legal_declarations中的ID", "public_statement": "≤40字"},
-        "execution": {"option_id": "所选宣称execution_options中的ID", "public_statement": "≤40字"},
-        "private_rationale": "简短私有决策依据，不要展开思维链", "negotiation": {},
-    }
-    for war_id, context in situation.get("negotiation_contexts", {}).items():
-        if situation["negotiation_mode"] == "offers":
-            schema["negotiation"][war_id] = (
-                {"offer_id": "本次offers中的ID"} if context["role"] == "defender"
-                else {"accept_offer_ids": ["愿接受的本次offer ID；全部拒绝填空数组"]})
-        else:
-            schema["negotiation"][war_id] = (
-                {"changes": {"attacker": {k: 0.0 for k in _STATS},
-                             "defender": {k: 0.0 for k in _STATS}}}
-                if context["role"] == "defender" else
-                {"accept": True, "min_total_gain": 0.0, "min_gains": {k: 0.0 for k in _STATS}})
-    if "threat_observation_sources" in situation:
-        schema["threat_observation"] = {
-            "target_country_id": None, "level": "急迫|中|缓和|未知",
-            "basis": "≤60字", "source_ids": ["本次可见来源ID；最多三个"],
-        }
-    user = ("本轮只提交一次完整密封决策包。以下数据是回合开始时可见的信息。\n"
-            + json.dumps(situation, ensure_ascii=False, separators=(",", ":"))
-            + "\n输出字段结构如下；示例中的占位说明不是答案：\n"
-            + json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
-    return system, user

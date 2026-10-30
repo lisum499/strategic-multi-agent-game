@@ -1,504 +1,289 @@
-"""Compile v4.1 legal options and consequences from the shared rule constants."""
+"""Deterministic v5.0 settlement. Inputs/outputs are JSON-compatible dicts.
 
+Actions are sealed before invoking settle_round; this module performs no I/O
+or model calls. It returns a fresh state and a fully auditable round record.
+"""
 from __future__ import annotations
 
+from copy import deepcopy
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+from itertools import combinations
 from typing import Any
+from pathlib import Path
+import json
 
-from .state import STAT_KEYS, State, War, round_half
-from .tools import rules_v4 as R
-
-MULTIPLIER = {
-    # v3.0：防守方不再自动获得 W 倍率；S 修正仍有效（S+1 → 1.1）。
-    -3: 0.25, -2: 0.5, -1: 0.75, 0: 1.0, 1: 1.1, 2: 1.2, 3: 1.3,
-}
-
-
-def ce_m(country) -> float:
-    return country.c + country.e + country.m
-
-
-def multiplier_for(s_plus_w: float) -> float:
-    key = max(-3, min(3, int(round(s_plus_w))))
-    return MULTIPLIER[key]
+RULES_VERSION = '5.0'
+Q = Decimal('0.000001')
+ZERO = Decimal(0)
+DEFAULT_CONFIG = json.loads((Path(__file__).parent / 'scenarios' / 'rules.json').read_text(encoding='utf-8'))
+ACTION_LEVELS = DEFAULT_CONFIG['actions']
+ACTUAL_NUCLEAR = frozenset({'有限核武器使用', '升级性核行动', '扩大核打击行动', '战略核战争'})
+THREATS = frozenset({'战略核威胁', '最后核警告'})
+NUCLEAR_ACTIONS = ACTUAL_NUCLEAR | THREATS | frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁'})
+CONVENTIONAL_MILITARY = frozenset({'军事示威','有限军事试探','升级边境军事行动','常规军事施压','大规模常规军事行动','纵深常规打击','最大规模常规作战'})
 
 
-def multi_front_penalty(state: State, country_id: str) -> int:
-    """按交战方战争数量给出 S 的惩罚；数目语义见规则 §4.1 试运行补充。"""
-    count = len(state.party_wars(country_id))
-    if count <= 1:
-        return 0
-    if count == 2:
-        return -1
-    if count <= 6:
-        return -3
-    return -4
+def number(value: Any) -> Decimal:
+    if isinstance(value, bool):
+        raise ValueError('boolean is not a number')
+    try:
+        result = Decimal(str(value))
+    except Exception as exc:
+        raise ValueError('invalid numeric value') from exc
+    if not result.is_finite():
+        raise ValueError('numeric value must be finite')
+    return result
 
 
-def war_power(state: State, war: War, side_id: str,
-              *, s_bonus: float = 0.0) -> float:
-    country = state.countries[side_id]
-    s = multi_front_penalty(state, side_id) + s_bonus
-    w = 0  # v3.0：防守方不再自动获得 W 倍率；仅在场景/规则显式给出时才有修正
-    power = ce_m(country) * multiplier_for(s + w)
-    for item in war.intervened_by:
-        if item.get("round") not in (None, state.round):
-            continue  # 干涉只在本轮有效，历史记录不参与后续战力
-        if item["support_id"] == side_id:
-            intervener = state.countries.get(item["intervener_id"])
-            if intervener is not None and intervener.alive:
-                power += ce_m(intervener) * 0.25
-    return round(power, 4)
+def quant(value: Decimal) -> Decimal:
+    return value.quantize(Q, rounding=ROUND_HALF_UP)
 
 
-def resolve_war(state: State, war: War,
-                *, attacker_s_bonus: float = 0.0,
-                attacker_factor: float = 1.0,
-                defender_factor: float = 1.0) -> dict[str, Any]:
-    """返回 {'winner': id|None, 'attacker_power':x, 'defender_power':y}。
+def out(value: Decimal) -> float:
+    return float(quant(value))
 
-    v3.0：双方战力各乘一个 ±band 的战争意志随机修正（由引擎抽取并记录）。
+
+def _get(matrix: dict, a: str, b: str) -> Decimal:
+    return number(matrix.get(a, {}).get(b, 0))
+
+
+def _put(matrix: dict, a: str, b: str, v: Decimal) -> None:
+    matrix.setdefault(a, {})[b] = out(v)
+
+
+def _config(config: dict | None) -> dict:
+    c = deepcopy(DEFAULT_CONFIG)
+    if config:
+        unknown = set(config) - set(c)
+        if unknown:
+            raise ValueError(f'unknown v5 config fields: {sorted(unknown)}')
+        c.update(deepcopy(config))
+    if not isinstance(c['actions'], dict) or set(c['actions']) != set(ACTION_LEVELS):
+        raise ValueError('规则参数 actions 必须包含全部原有行动名称')
+    for name, value in c['actions'].items():
+        n = number(value)
+        if name == '保持不变' and n != 0:
+            raise ValueError('保持不变必须为0')
+        if name != '保持不变' and ((name in {'完全投降','大规模撤退','重大让步','中等规模撤退','有限战术撤退','小规模后撤','外交降级','最低限度让步'}) != (n < 0)):
+            raise ValueError(f'行动数值符号不合法: {name}')
+    for key in ('conventional_intensity_divisor','nuclear_intensity_divisor','capability_offset','nuclear_territory_scale'):
+        if number(c[key]) <= 0: raise ValueError(f'{key} 必须大于0')
+    for key in ('territory_win_min','territory_win_gap','threat_effect','conventional_loss_rate','capability_min','capability_max','nuclear_territory_max_bonus','nuclear_capability_threshold'):
+        if number(c[key]) < 0: raise ValueError(f'{key} 必须非负')
+    if number(c['capability_min']) > number(c['capability_max']): raise ValueError('战损倍率上下界无效')
+    return c
+
+
+def validate_decisions(state: dict, decisions: dict, config: dict | None = None) -> None:
+    cfg = _config(config)
+    countries = state['countries']
+    living = {cid for cid, c in countries.items() if c.get('alive', True)}
+    if set(decisions) != living:
+        raise ValueError('one decision required for each living country')
+    for cid, decision in decisions.items():
+        actions = decision.get('actions', [])
+        if not isinstance(actions, list):
+            raise ValueError('actions must be a list')
+        targets = set()
+        allocated = {'conventional': ZERO, 'nuclear': ZERO}
+        for action in actions:
+            if not isinstance(action, dict):
+                raise ValueError('action must be an object')
+            target = action.get('target_id')
+            name = action.get('action_id')
+            if target not in living or target == cid or target in targets:
+                raise ValueError('target must be a unique living opponent')
+            targets.add(target)
+            if name not in cfg['actions']:
+                raise ValueError(f'unknown action: {name}')
+            level = number(cfg['actions'][name])
+            old = _get(state.get('conflicts', {}), cid, target)
+            opposite = _get(state.get('conflicts', {}), target, cid)
+            if level < 0 and old == 0 and opposite == 0:
+                raise ValueError('cannot de-escalate a nonexistent conflict')
+            if name in NUCLEAR_ACTIONS and old < level:
+                raise ValueError('nuclear action requires its threshold before the action')
+            for k in allocated:
+                v = number(action.get(k, 0))
+                if v < 0:
+                    raise ValueError('forces cannot be negative')
+                allocated[k] += v
+            if name in ACTUAL_NUCLEAR and (number(countries[cid].get('nuclear', 0)) <= 0 or number(action.get('nuclear', 0)) <= 0):
+                raise ValueError('actual nuclear use requires allocated nuclear forces')
+        for k,v in allocated.items():
+            if v > number(countries[cid].get(k,0)):
+                raise ValueError('forces cannot be allocated twice or exceed available forces')
+
+
+def _allocate(amount: Decimal, claims: dict[str, Decimal]) -> dict[str, Decimal]:
+    """One payment per payer; distribute shortage proportionally at 6 decimals."""
+    total = sum(claims.values(), ZERO)
+    pay = min(amount, total)
+    if total <= 0 or pay <= 0:
+        return {x: ZERO for x in claims}
+    if pay == total:
+        return dict(claims)
+    # Round in stable ID order; the final beneficiary receives the remainder.
+    keys = sorted(claims)
+    shares = {}
+    remaining = pay
+    for key in keys[:-1]:
+        share = min(quant(pay * claims[key] / total), claims[key], remaining)
+        shares[key] = share
+        remaining -= share
+    shares[keys[-1]] = min(remaining, claims[keys[-1]])
+    remaining -= shares[keys[-1]]
+    # If rounding limited the last claim, return any residual to earlier claims.
+    for key in keys[:-1]:
+        if remaining <= 0:
+            break
+        delta = min(remaining, claims[key] - shares[key])
+        shares[key] += delta
+        remaining -= delta
+    if remaining != 0:
+        raise ArithmeticError('allocation precision error')
+    return shares
+
+
+def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tuple[dict, dict]:
+    """Return (new_state, log); validate all decisions before applying any changes.
+
+    state.round denotes the round being executed. The returned state increments
+    round on continuation. Alliance transfers should be settled before this call.
     """
-    attacker_power = war_power(state, war, war.attacker_id,
-                               s_bonus=attacker_s_bonus) * attacker_factor
-    defender_power = war_power(state, war, war.defender_id) * defender_factor
-    if attacker_power > defender_power:
-        winner = war.attacker_id
-    elif defender_power > attacker_power:
-        winner = war.defender_id
-    else:
-        winner = None
-    return {
-        "winner": winner,
-        "attacker_power": attacker_power,
-        "defender_power": defender_power,
-    }
-
-
-# ── 声誉/可信度 ─────────────────────────────────────────────────────────
-def intervene_reputation(state: State, war: War, support_id: str) -> float:
-    attacker_strength = ce_m(state.countries[war.attacker_id])
-    defender_strength = ce_m(state.countries[war.defender_id])
-    if attacker_strength == defender_strength:
-        return R.REPUTATION["intervene_equal_strength"]
-    weaker = war.defender_id if defender_strength < attacker_strength else war.attacker_id
-    if support_id == weaker:
-        return R.REPUTATION["intervene_support_weak"]
-    return R.REPUTATION["intervene_support_strong"]
-
-
-def reputation_delta(state: State, option: dict[str, Any]) -> float:
-    action_type = option["action_type"]
-    if action_type == "intervene":
-        war = state.wars.get(option.get("war_id") or "")
-        if war is None:
-            return 0.0
-        return intervene_reputation(state, war, option["support_country_id"])
-    return float(R.REPUTATION[action_type])
-
-
-def credibility_delta(declaration: dict[str, Any], option: dict[str, Any]) -> int:
-    declared = declaration["action_type"]
-    executed = option["action_type"]
-    if declared != executed:
-        return int(R.CREDIBILITY_MATRIX[declared][executed])
-    if declaration["target_country_id"] != option["target_country_id"]:
-        raise ValueError("目标国不同应为非法，不应进入合法性计算")
-    if (declaration.get("war_id") == option.get("war_id")
-            and declaration.get("support_country_id") == option.get("support_country_id")):
-        return int(R.CREDIBILITY_RULES["exact_match"])
-    return int(R.CREDIBILITY_RULES["same_type_different_binding"])
-
-
-# ── 合法选项 ───────────────────────────────────────────────────────────
-def _targets(state: State, country_id: str) -> list[str]:
-    return [cid for cid in state.alive_ids() if cid != country_id]
-
-
-def select_war(state: State, a: str, b: str) -> War | None:
-    """同一对国家可能有多场反向战争；统一取最早开始的一场（再按 war_id）。
-
-    提示词里的后果与实际结算必须用同一个选择，否则模型看到的角色会与实际相反。
-    """
-    wars = state.wars_between(a, b)
-    if not wars:
-        return None
-    return min(wars, key=lambda war: (war.started_round, war.war_id))
-
-
-def can_start_war(state: State, country_id: str) -> bool:
-    country = state.countries[country_id]
-    if not country.alive:
-        return False
-    if state.round in country.war_bans:
-        return False
-    return not state.is_party_in_any_war(country_id)
-
-
-def can_use_nuclear(state: State, country_id: str) -> bool:
-    country = state.countries[country_id]
-    return country.alive and country.nuclear_status != "无" and state.round > 1
-
-
-def _option(option_id: str, action_type: str, target: str | None, *,
-            war_id: str | None = None, support: str | None = None,
-            consequence: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
-        "option_id": option_id,
-        "action_type": action_type,
-        "target_country_id": target,
-        "war_id": war_id,
-        "support_country_id": support,
-        "consequences": consequence or {},
-    }
-
-
-def _declaration_consequences(state: State, action_type: str,
-                               target: str, war: War | None = None,
-                               support: str | None = None,
-                               country_id: str | None = None) -> dict[str, Any]:
-    role = None
-    if war is not None and country_id is not None:
-        if war.attacker_id == country_id:
-            role = "attacker"
-        elif war.defender_id == country_id:
-            role = "defender"
-
-    if action_type == "intervene":
-        rep = (intervene_reputation(state, war, support)
-               if war is not None and support is not None else 0.0)
-        if rep > 0:
-            note = "支持弱方；声誉 +2"
-        elif rep < 0:
-            note = "支持强方；声誉 −1"
-        else:
-            note = "支持势均方；声誉 0"
-        note += "；资源：先从被干涉方转移 0.5 点给干涉国"
-        if war is not None:
-            note += "；若支持方失败再转移 1 点回被干涉方；战争提前结束则行动取消"
-    elif action_type == "peace":
-        if war is None:
-            rep = float(R.REPUTATION["no_war_peace"])
-            note = ("无战争和平：常规表态，声誉 0、可信度 0；"
-                    "若双方当事国同轮相互和平并达成危机安排，各 +1 声誉 +1 可信度")
-        else:
-            rep = float(R.REPUTATION["peace"])
-        if war is None:
-            pass
-        elif role == "attacker":
-            note = "进攻方求和：立即停战、向防守方转移 1 点（随机 C/E/M）、视为对方胜；声誉 +1"
-        else:
-            note = "防守方求和：进入谈判；声誉 +1"
-    elif action_type == "nuclear":
-        if war is None:
-            rep = float(R.REPUTATION["nuclear"])
-            note = ("无战争核使用：从目标取得 2 点、向目标转移 1 点（同一随机 C/E/M，净 +1）；"
-                    "声誉 −3（不计分）")
-        elif role == "attacker":
-            rep = float(R.REPUTATION["nuclear"])
-            note = ("进攻方核使用：该战立即判你胜；从目标取得 2 点、向目标转移 1 点"
-                    "（同一随机 C/E/M，净 +1）；声誉 −3（不计分）；若无战争则同样只做转移")
-        elif role == "defender":
-            rep = 0.0  # 防守方核使用例外；若对方同时用核则仍按普通核使用扣声誉
-            note = ("防守方核使用：若对方未同时用核，该战判你胜；从目标取得 2 点、"
-                    "向目标转移 1 点（同一随机 C/E/M，净 +1）；本次不扣声誉、下一轮禁 war")
-        else:
-            rep = float(R.REPUTATION["nuclear"])
-            note = "核使用：从目标取得 2 点、向目标转移 1 点（同一随机 C/E/M，净 +1）；声誉 −3（不计分）"
-    else:
-        rep = float(R.REPUTATION["war"])
-        note = ("常规战争；声誉 −2；胜者随机一项 C/E/M +2、败者 −2；"
-                "结算时双方战力各乘 ±10% 战争意志随机")
-    cred_if_kept = int(R.CREDIBILITY_RULES["exact_match"])
-    if action_type == "peace" and war is None:
-        cred_if_kept = int(R.PEACE["no_war_credibility"])
-    return {
-        "reputation_delta": rep,
-        "credibility_delta_if_kept": cred_if_kept,
-        "note": note,
-    }
-
-
-def declaration_options(state: State, country_id: str) -> list[dict[str, Any]]:
-    """主要阶段：宣称类型 + 目标国（干涉另带 war_id 与支持方）。"""
-    country = state.countries[country_id]
-    targets = _targets(state, country_id)
-    options: list[dict[str, Any]] = []
-    counter = 0
-
-    def add(action_type: str, target: str, *, war_id=None, support=None,
-            war: War | None = None) -> None:
-        nonlocal counter
-        counter += 1
-        options.append(_option(
-            f"D{counter}", action_type, target, war_id=war_id, support=support,
-            consequence=_declaration_consequences(state, action_type, target,
-                                                  war=war, support=support,
-                                                  country_id=country_id),
-        ))
-
-    if can_start_war(state, country_id):
-        for target in targets:
-            add("war", target)
-
-    if can_use_nuclear(state, country_id):
-        for target in targets:
-            wars = state.wars_between(country_id, target)
-            add("nuclear", target, war=(select_war(state, country_id, target)
-                                        if wars else None))
-            if len(wars) > 1:
-                options[-1]["consequences"]["note"] += "；多场战争按最早开始的一场结算"
-
-    for war in state.wars_existing_at_round_start():
-        if country_id in war.parties():
+    cfg = _config(config)
+    validate_decisions(state, decisions, cfg)
+    current = deepcopy(state)
+    countries = current['countries']
+    conflicts = current.setdefault('conflicts', {})
+    history = current.setdefault('threat_history', {})
+    old_conflicts = deepcopy(conflicts)
+    old_history = deepcopy(history)
+    living_at_start = sorted(cid for cid,c in countries.items() if c.get('alive',True))
+    round_number = int(current.get('round', 1))
+    choices = {(cid, a['target_id']): a for cid,d in decisions.items() for a in d.get('actions',[])}
+    old_nuclear_users = set(current.get('nuclear_used', []))
+    nuclear_users = old_nuclear_users | {a for (a,_),v in choices.items() if v['action_id'] in ACTUAL_NUCLEAR}
+    current['nuclear_used'] = sorted(nuclear_users)
+    updated_threats = {}
+    for (a,b),choice in sorted(choices.items()):
+        name=choice['action_id']; delta=number(cfg['actions'][name])
+        old=_get(old_conflicts,a,b); old_threat=_get(old_history,a,b)
+        new=max(ZERO,old+delta)
+        # Historical threat contributions cannot exceed the remaining level.
+        historic=min(old_threat,new)
+        if name in THREATS:
+            updated_threats[(a,b)]=delta
+            historic += delta
+        _put(conflicts,a,b,new)
+        _put(history,a,b,historic)
+    # Include opposite missing directions as neutral actions in every existing pair.
+    logs=[]; claims: dict[str,dict[str,Decimal]]={cid:{} for cid in living_at_start}
+    combat_losses={cid:{'conventional':ZERO,'nuclear':ZERO} for cid in living_at_start}
+    default={'action_id':'保持不变','conventional':0,'nuclear':0}
+    mutual_nuclear=[]; mutual_surrender=[]
+    for a,b in combinations(living_at_start,2):
+        ca=choices.get((a,b),default); cb=choices.get((b,a),default)
+        if not (_get(conflicts,a,b) or _get(conflicts,b,a) or (a,b) in choices or (b,a) in choices):
             continue
-        # 支持防守方：目标是进攻方；支持进攻方：目标是防守方
-        add("intervene", war.attacker_id, war_id=war.war_id,
-            support=war.defender_id, war=war)
-        add("intervene", war.defender_id, war_id=war.war_id,
-            support=war.attacker_id, war=war)
-
-    for target in targets:
-        wars = state.wars_between(country_id, target)
-        if wars:
-            for war in wars:
-                add("peace", target, war_id=war.war_id, war=war)
+        aa,bb=ca['action_id'],cb['action_id']
+        if aa==bb=='战略核战争': mutual_nuclear.append((a,b))
+        if aa==bb=='完全投降': mutual_surrender.append((a,b))
+        na,nb=_get(conflicts,a,b),_get(conflicts,b,a)
+        prior_a=min(_get(old_history,a,b),na)
+        prior_b=min(_get(old_history,b,a),nb)
+        # Current threats contribute just this round; previous threat increments never recur.
+        def effective(who,other,name,level,prior):
+            base=max(ZERO,level-prior-updated_threats.get((who,other),ZERO))
+            if name in THREATS:
+                d=number(cfg['actions'][name]) if who in nuclear_users or other in nuclear_users else number(cfg['threat_effect'])
+                return base+d
+            return base
+        ea=effective(a,b,aa,na,prior_a); eb=effective(b,a,bb,nb,prior_b)
+        difference=abs(ea-eb)
+        if (aa in ACTUAL_NUCLEAR and bb in CONVENTIONAL_MILITARY) or (bb in ACTUAL_NUCLEAR and aa in CONVENTIONAL_MILITARY):
+            theta=Decimal(1)+min(difference/number(cfg['nuclear_territory_scale']),number(cfg['nuclear_territory_max_bonus']))
         else:
-            add("peace", target)
-
-    return options
-
-
-def action_options(state: State, country_id: str,
-                   declaration: dict[str, Any]) -> list[dict[str, Any]]:
-    """战斗阶段：目标国固定，类型可变；后果里带可信度增量。"""
-    country = state.countries[country_id]
-    target = declaration["target_country_id"]
-    options: list[dict[str, Any]] = []
-    counter = 0
-
-    def add(action_type: str, *, war_id=None, support=None,
-            war: War | None = None) -> None:
-        nonlocal counter
-        counter += 1
-        option = _option(f"A{counter}", action_type, target,
-                         war_id=war_id, support=support)
-        consequence = _declaration_consequences(
-            state, action_type, target, war=war, support=support,
-            country_id=country_id)
-        consequence["credibility_delta"] = credibility_delta(declaration, option)
-        consequence.pop("credibility_delta_if_kept", None)
-        # v3.0：无战争且未达成危机安排的和平是常规表态，不因"说到做到"加分。
-        if (action_type == "peace" and war is None
-                and declaration.get("action_type") == "peace"
-                and declaration.get("war_id") is None):
-            consequence["credibility_delta"] = int(R.PEACE["no_war_credibility"])
-            consequence["note"] = (consequence.get("note", "")
-                                   + "；v3.0 常规表态：可信度 +0，需双方共同安排才计分")
-        option["consequences"] = consequence
-        options.append(option)
-
-    if target in state.countries and state.countries[target].alive:
-        if can_start_war(state, country_id) and not state.wars_between(country_id, target):
-            add("war")
-        if can_use_nuclear(state, country_id):
-            wars = state.wars_between(country_id, target)
-            add("nuclear", war=(select_war(state, country_id, target)
-                                if wars else None))
-            if len(wars) > 1:
-                options[-1]["consequences"]["note"] += "；多场战争按最早开始的一场结算"
-        for war in state.wars_existing_at_round_start():
-            if country_id in war.parties():
-                continue
-            if target not in war.parties():
-                continue
-            support = war.other_side(target)
-            if support is not None:
-                add("intervene", war_id=war.war_id, support=support, war=war)
-        wars = state.wars_between(country_id, target)
-        if wars:
-            for war in wars:
-                add("peace", war_id=war.war_id, war=war)
-        else:
-            add("peace")
-
-    # 防御：理论上至少应有 peace（目标存活时）；没有则返回空，由引擎记系统无可用行动
-    return options
-
-
-def crisis_round_cost(crisis: Any, round_no: int) -> dict[str, dict[str, float]]:
-    """v4.1：按阶段、等级与宽限期计算每轮成本（0.5 步长）。"""
-    if crisis.resolved or round_no <= crisis.grace_rounds:
-        return {}
-    # v4.1：战争阶段只按基础成本固定收取、不随等级升级；
-    # 战争打平/谈判失败进入停滞阶段后，恢复按等级放大。
-    if crisis.stage == "war":
-        return {
-            group: {key: round_half(value) for key, value in costs.items()}
-            for group, costs in crisis.unresolved_cost.items()
-        }
-    multiplier = crisis.escalation_multiplier ** max(0, crisis.level - 1)
-    return {
-        group: {key: round_half(value * multiplier)
-                for key, value in costs.items()}
-        for group, costs in crisis.unresolved_cost.items()
-    }
-
-
-def crisis_group(crisis: Any, country_id: str) -> str | None:
-    if country_id in crisis.parties:
-        return "parties"
-    if country_id in crisis.dependents:
-        return "dependents"
-    return "others"
-
-
-def objective_condition_met(condition: dict[str, Any], state: State,
-                            country_id: str,
-                            attacked_this_round: set[str]) -> bool:
-    """目标卡条件求值；只支持规则卡列出的键（v4.1 增加阶段/解决方式/停滞轮数）。"""
-    for key, value in condition.items():
-        if key == "any_of":
-            if not any(objective_condition_met(item, state, country_id,
-                                               attacked_this_round)
-                       for item in value):
-                return False
-        elif key == "all_of":
-            if not all(objective_condition_met(item, state, country_id,
-                                               attacked_this_round)
-                       for item in value):
-                return False
-        elif key == "control_is":
-            crisis = state.crisis
-            if crisis is None or crisis.control != value:
-                return False
-        elif key == "crisis_resolved":
-            if state.crisis is None or state.crisis.resolved != bool(value):
-                return False
-        elif key == "crisis_level_at_least":
-            if state.crisis is None or state.crisis.level < int(value):
-                return False
-        elif key == "attacked_by_any":
-            ongoing = any(war.defender_id == country_id
-                          for war in state.ongoing_wars())
-            if (ongoing or country_id in attacked_this_round) != bool(value):
-                return False
-        elif key == "war_any":
-            if bool(state.party_wars(country_id)) != bool(value):
-                return False
-        elif key == "stage_is":
-            if state.crisis is None or state.crisis.stage != value:
-                return False
-        elif key == "resolution_is":
-            if state.crisis is None or state.crisis.resolution != value:
-                return False
-        elif key == "stalled_rounds_at_least":
-            if (state.crisis is None
-                    or state.crisis.stalled_rounds < int(value)):
-                return False
-        else:
-            raise ValueError(f"未知目标卡条件：{key}")
-    return True
-
-
-def constraints_for(state: State, country_id: str, phase: str,
-                    declaration: dict[str, Any] | None = None) -> list[str]:
-    country = state.countries[country_id]
-    lines: list[str] = []
-    if state.round == 1:
-        lines.append("第 1 轮：禁止 nuclear 的宣称与执行；其他类型正常")
-    if state.round in country.war_bans:
-        lines.append(f"第 {state.round} 轮：你被禁止发动 war")
-    if country.nuclear_status == "无":
-        lines.append("你没有核能力：nuclear 不可选")
-    if state.is_party_in_any_war(country_id):
-        lines.append("你有未结束的战争：本轮不能新开常规战争")
-    lines.append("目标国不能是本国或已退出国家")
-    if phase == "declaration":
-        lines.append("宣称的目标国在 action 阶段不能改变；行动类型可以改变")
-    else:
-        lines.append(f"你本轮已宣称的目标国是 {declaration['target_country_id']}，行动目标必须一致")
-        lines.append("类型一致且 war_id/支持方一致：可信度 +1；否则按情况扣分")
-    lines.append("干涉时 target_country_id 是被干涉方，support_country_id 是被支持方；不能支持自己")
-    return lines
-
-
-def negotiation_bounds() -> dict[str, Any]:
-    """自提方案模式下给模型的约束（数值仍由引擎再校验一次）。"""
-    return {
-        "step": R.NEGOTIATION["step"],
-        "attacker_gain": {
-            "min_each": R.NEGOTIATION["attacker_gain_min"],
-            "max_each": R.NEGOTIATION["attacker_gain_max_each"],
-            "max_sum": R.NEGOTIATION["attacker_gain_max_sum"],
-        },
-        "defender_loss": {
-            "min_each": R.NEGOTIATION["defender_loss_min_each"],
-            "max_each": R.NEGOTIATION["defender_loss_max_each"],
-            "min_sum": R.NEGOTIATION["defender_loss_min_sum"],
-        },
-        "note": "数值以 0.5 为单位；防守方用负数表示损失",
-    }
-
-
-def negotiation_offers(state: State, war: War) -> list[dict[str, Any]]:
-    """给防守方的合法方案；包含双方无数值变化的停战选项。"""
-    return [
-        {
-            "offer_id": "P1",
-            "label": "进攻方 +1.5，防守方 −1.5",
-            "changes": {
-                "attacker": {"c": 0.0, "e": 1.5, "m": 0.0},
-                "defender": {"c": 0.0, "e": -1.5, "m": 0.0},
-            },
-        },
-        {
-            "offer_id": "P2",
-            "label": "进攻方 +1.0，防守方 −1.0（分两项）",
-            "changes": {
-                "attacker": {"c": 0.5, "e": 0.5, "m": 0.0},
-                "defender": {"c": -0.5, "e": -0.5, "m": 0.0},
-            },
-        },
-        {
-            "offer_id": "P3",
-            "label": "进攻方 +3.0，防守方 −3.0",
-            "changes": {
-                "attacker": {"c": 1.0, "e": 1.0, "m": 1.0},
-                "defender": {"c": -1.0, "e": -1.0, "m": -1.0},
-            },
-        },
-        {
-            "offer_id": "P4",
-            "label": "双方数值不变停战",
-            "changes": {
-                "attacker": {"c": 0.0, "e": 0.0, "m": 0.0},
-                "defender": {"c": 0.0, "e": 0.0, "m": 0.0},
-            },
-        },
-    ]
-
-
-def validate_negotiation_offer(offer: dict[str, Any]) -> None:
-    """校验方案是否满足 0.5 步长、上限、符号与零和对称；不合法直接报错。"""
-    step = R.NEGOTIATION["step"]
-    for side, sign in (("attacker", 1), ("defender", -1)):
-        changes = offer["changes"][side]
-        for key in STAT_KEYS:
-            value = float(changes[key])
-            if value != value or value in (float("inf"), float("-inf")):
-                raise ValueError(f"谈判数值必须是有限数字：{side}.{key}={value}")
-            if abs(value / step - round(value / step)) > 1e-9:
-                raise ValueError(f"谈判数值不是 0.5 的整数倍：{side}.{key}={value}")
-            if sign > 0 and not (0.0 <= value <= R.NEGOTIATION["attacker_gain_max_each"]):
-                raise ValueError(f"进攻方所得越界：{side}.{key}={value}")
-            if sign < 0 and not (R.NEGOTIATION["defender_loss_min_each"] <= value <= 0.0):
-                raise ValueError(f"防守方所失越界：{side}.{key}={value}")
-        total = sum(float(changes[key]) for key in STAT_KEYS)
-        if sign > 0 and total > R.NEGOTIATION["attacker_gain_max_sum"]:
-            raise ValueError(f"进攻方合计越界：{total}")
-        if sign < 0 and total < R.NEGOTIATION["defender_loss_min_sum"]:
-            raise ValueError(f"防守方合计越界：{total}")
-    for key in STAT_KEYS:
-        if abs(float(offer["changes"]["attacker"][key])
-               + float(offer["changes"]["defender"][key])) > 1e-9:
-            raise ValueError(f"谈判方案必须逐项守恒：{key}")
+            theta=Decimal(1)
+        claim=quant(difference*theta)
+        if ea>eb: loser,winner=b,a
+        elif eb>ea: loser,winner=a,b
+        else: loser=winner=None
+        if loser and claim>0: claims[loser][winner]=claim
+        combat = aa in CONVENTIONAL_MILITARY or bb in CONVENTIONAL_MILITARY
+        actual=[name for name in (aa,bb) if name in ACTUAL_NUCLEAR]
+        intensity=ZERO; rates={'conventional':ZERO,'nuclear':ZERO}
+        if actual:
+            intensity=min((na+nb)/number(cfg['nuclear_intensity_divisor']),Decimal(1))
+            largest=max(number(cfg['actions'][name]) for name in actual)
+            for threshold,cv,nv in cfg['nuclear_loss_tiers']:
+                if largest>=number(threshold): rates={'conventional':number(cv),'nuclear':number(nv)}
+        elif combat:
+            intensity=min((na+nb)/number(cfg['conventional_intensity_divisor']),Decimal(1))
+            rates['conventional']=number(cfg['conventional_loss_rate'])
+        av=number(ca.get('conventional',0)); bv=number(cb.get('conventional',0))
+        eps=number(cfg['capability_offset']); lo=number(cfg['capability_min']); hi=number(cfg['capability_max'])
+        ma=min(hi,max(lo,((bv+eps)/(av+eps)).sqrt())); mb=min(hi,max(lo,((av+eps)/(bv+eps)).sqrt()))
+        item_losses={}
+        for cid,choice,mult in ((a,ca,ma),(b,cb,mb)):
+            item_losses[cid]={}
+            for kind in ('conventional','nuclear'):
+                loss=quant(number(choice.get(kind,0))*intensity*rates[kind]*mult)
+                loss=min(loss,number(choice.get(kind,0)))
+                combat_losses[cid][kind]+=loss
+                item_losses[cid][kind]=out(loss)
+        logs.append({'parties':[a,b],'actions':{a:aa,b:bb}, 'levels':{a:out(na),b:out(nb)},'territory_levels':{a:out(ea),b:out(eb)}, 'territory_claim':out(claim),'territory_winner':winner,'theta':out(theta),'intensity':out(intensity),'losses':item_losses})
+    ledger=[]
+    for payer in living_at_start:
+        payer_claims=claims[payer]
+        if not payer_claims: continue
+        balance=number(countries[payer]['territory'])
+        if not countries[payer].get('alive',True):
+            ledger.append({'payer':payer,'status':'already_eliminated','claims':{k:out(v) for k,v in payer_claims.items()}})
+            continue
+        # Dead beneficiaries' awards return to payer, and are not redistributed.
+        allocated=_allocate(balance,payer_claims)
+        transferred=ZERO
+        for receiver,share in sorted(allocated.items()):
+            eligible=countries[receiver].get('alive',True)
+            actual=share if eligible else ZERO
+            transferred+=actual
+            countries[receiver]['territory']=out(number(countries[receiver]['territory'])+actual)
+            ledger.append({'payer':payer,'receiver':receiver,'claim':out(payer_claims[receiver]),'allocated':out(share),'transferred':out(actual),'returned':out(share-actual)})
+        remaining=quant(balance-transferred)
+        countries[payer]['territory']=out(remaining)
+        if remaining<=0:
+            countries[payer]['alive']=False
+    # Losses arise from sealed actions; the entire round is settled even if territory falls to 0.
+    for cid in living_at_start:
+        for kind in ('conventional','nuclear'):
+            countries[cid][kind]=out(max(ZERO,number(countries[cid].get(kind,0))-combat_losses[cid][kind]))
+    for a,b in mutual_nuclear:
+        countries[a]['alive']=countries[b]['alive']=False
+    # Mutual surrender ends the match without a winner; other surrender requires unanimous surrender to one.
+    surrender_winner=None
+    if not mutual_surrender:
+        for target in living_at_start:
+            if all(choices.get((other,target),{}).get('action_id')=='完全投降' for other in living_at_start if other!=target):
+                surrender_winner=target
+                for other in living_at_start:
+                    if other!=target: countries[other]['alive']=False
+                break
+    alive=[cid for cid in living_at_start if countries[cid].get('alive',True)]
+    winner=None; reason=None
+    if mutual_surrender:
+        reason='mutual_surrender'
+    elif not alive:
+        reason='all_eliminated'
+    elif len(alive)==1:
+        winner=alive[0]; reason='last_country'
+    elif len(alive)>1:
+        for cid in alive:
+            value=number(countries[cid]['territory'])
+            lead=max(number(countries[other]['territory']) for other in alive if other!=cid)
+            if value>=number(cfg['territory_win_min']) and value-lead>=number(cfg['territory_win_gap']):
+                winner=cid; reason='territory_victory'; break
+    if reason is None and round_number>=int(cfg['max_rounds']): reason='round_limit'
+    current['round'] = round_number if reason else round_number+1
+    current['outcome']={'finished':reason is not None, 'winner_id':winner, 'reason':reason}
+    return current, {'round':round_number,'pairs':logs,'territory_transfers':ledger,'outcome':deepcopy(current['outcome'])}

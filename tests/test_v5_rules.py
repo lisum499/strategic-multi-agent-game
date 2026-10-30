@@ -1,6 +1,6 @@
 import unittest
 from copy import deepcopy
-from strategic_game import v5_rules as r
+from strategic_game import rules as r
 
 
 def country(territory=100, conventional=20, nuclear=20):

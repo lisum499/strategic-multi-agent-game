@@ -143,7 +143,7 @@ def resolve(state, decisions, config=None):
     reserved = {cid: {k: sum((_num(action.get(k, 0)) for action in
                               decisions[cid].get('actions', [])), ZERO)
                       for k in KINDS} for cid in ids}
-    from .v5_rules import ACTION_LEVELS
+    from .rules import ACTION_LEVELS
     levels = (config or {}).get('actions', ACTION_LEVELS)
     planned_conflicts = {frozenset((cid, action['target_id'])) for cid in ids
                          for action in decisions[cid].get('actions', [])
@@ -327,7 +327,7 @@ def executable_decisions(state, decisions):
     fallback. Settlement and replay must use the effective mapping. The
     declaration and alliance requests are left intact.
     """
-    from .v5_rules import ACTUAL_NUCLEAR
+    from .rules import ACTUAL_NUCLEAR
     effective = deepcopy(decisions)
     failures = []
     for cid, decision in sorted(effective.items()):

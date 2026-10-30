@@ -1,6 +1,6 @@
 import contextlib, io, json, tempfile, unittest
 from pathlib import Path
-from strategic_game import cli, v5_runtime as v, v5_protocol as p
+from strategic_game import cli, runtime as v, protocol as p
 
 class V5RuntimeTests(unittest.TestCase):
     def test_complete_record_public_and_replay(self):
@@ -21,7 +21,7 @@ class V5RuntimeTests(unittest.TestCase):
     def test_failed_concurrent_borrow_falls_back_transactionally(self):
         state=p.validate_scenario(json.loads(Path(v.DEFAULT_SCENARIO).read_text()))
         state['round']=1
-        config=__import__('strategic_game.v5_rules',fromlist=['DEFAULT_CONFIG']).DEFAULT_CONFIG
+        config=__import__('strategic_game.rules',fromlist=['DEFAULT_CONFIG']).DEFAULT_CONFIG
         decisions={cid:p.make_fallback(v.situation_for(state,cid,[],config)) for cid in state['countries']}
         own=state['countries']['C1']['conventional']
         decisions['C1']['borrows']=[{'from_id':'C2','conventional':10,'nuclear':0}]
@@ -77,7 +77,7 @@ if __name__ == '__main__': unittest.main()
 
 class RealAdapterTests(unittest.TestCase):
     def test_model_receives_filtered_context_and_returns_valid_decision(self):
-        from strategic_game.v5_rules import DEFAULT_CONFIG
+        from strategic_game.rules import DEFAULT_CONFIG
         class Provider:
             name='scripted'
             last_call_info={}
@@ -91,3 +91,24 @@ class RealAdapterTests(unittest.TestCase):
         self.assertEqual(len(decisions),3)
         self.assertEqual(failed,0)
         self.assertTrue(all(x['status']=='completed' for x in calls))
+
+class ReplayIntegrityTests(unittest.TestCase):
+    def test_changed_parameter_snapshot_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            out=Path(d)/'run'
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(['run','--mock','--rounds','1','--out',str(out)]),0)
+            path=out/'run.json'
+            data=json.loads(path.read_text())
+            data['rule_config']['conventional_loss_rate']='0.99'
+            path.write_text(json.dumps(data,ensure_ascii=False))
+            with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.main(['replay',str(path)]),1)
+    def test_old_record_can_show_saved_summary(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'old.json'
+            path.write_text(json.dumps({'rules_version':'v4.1','rounds':[],'result':{'winner':None}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(['replay',str(path),'--show-only']),0)
+            with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.main(['replay',str(path)]),1)

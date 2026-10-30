@@ -1,9 +1,1 @@
-"""v4.1 zero-sum strategic game with sealed simultaneous decisions."""
-
-from .engine import Engine
-from .models import ActionType, DecisionPackage, Forecast, RoundPhase
-from .state import Country, State, War, Crisis
-from .state_machine import SealedRound
-
-__all__ = ["Engine", "ActionType", "DecisionPackage", "Forecast", "RoundPhase",
-           "Country", "State", "War", "Crisis", "SealedRound"]
+"""虚构国家战略博弈：密封决策与 v5.0 规则引擎。"""
