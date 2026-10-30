@@ -1,0 +1,310 @@
+{
+  "rules_version": "v5.0",
+  "scenario_id": "eight_nations_dawn_strait_v5",
+  "name": "八国黎明航道危机",
+  "world_context": "虚构世界：黎明海—星环航道是连接东西两岸和南方岛屿的商贸通道。阿岚、贝罗、瑟维亚和卡泽尔为开局拥核国；塔利亚、梅林、奥斯顿、埃维尔开局不拥有核力量。八国并非现实国家的对应模型。塔利亚管辖星环海峡主要港口及周边岛屿；贝罗与卡泽尔、奥斯顿存在陆上通道；梅林与埃维尔位于南方海域。航道承载工业品、能源、粮食和通信服务，各国经济关系跨越政治分歧。危机开始前数周，航道附近发生商船定位信号中断及一段海底通信线路故障，部分航次延误；故障原因尚无共同认可的独立结论。贝罗公开主张强化危险货物检查，并称措施旨在安全；塔利亚主张任何检查须经其同意；阿岚对单方扩大检查范围表示关切。上述内容是各方公开立场，不构成已证实的幕后行动。当前航道仍可通行，但保险与运输不确定性上升；有关检查范围、核查主体、主权和民用通航保障的谈判未达成共同方案。场景开始时没有已成立的安全同盟、正在进行的战斗、核使用或自动触发的后果；各国可自主提出声明、行动或邀请。",
+  "max_rounds": 30,
+  "world_tags": {
+    "polarity": "多极",
+    "system_environment": "紧张/复杂",
+    "strategic_environment": "约束"
+  },
+  "countries": {
+    "C1": {
+      "name": "阿岚联邦",
+      "territory": 56,
+      "conventional": 90,
+      "nuclear": 80,
+      "alive": true,
+      "profile": "阿岚是西方海岸工业与金融强国，依赖黎明航道进行能源、设备和粮食贸易。优先考虑航行连续性和避免航道规则被单方改变；国内工商界要求稳住保险与供应，安全部门担心贝罗的检查安排扩大军事影响。与瑟维亚有长期经济合作，但合作不意味着已经缔结本局同盟。可在安全、信誉、贸易和战争风险之间自主权衡。",
+      "tags": {
+        "strategic_culture": "现实主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "安全",
+        "ideology": 2,
+        "threat_perception": "中",
+        "comprehensive_power": "霸权",
+        "nuclear_status": "二次核打击",
+        "power_c": 5,
+        "power_e": 5,
+        "power_m": 5,
+        "strategic_will": 4,
+        "stakeholders": {
+          "others": [
+            "C3",
+            "C5",
+            "C6",
+            "C8"
+          ],
+          "adversaries": [
+            "C2"
+          ]
+        },
+        "relative_geography": {
+          "C2": "隔黎明航道相望，两国商船均通过主航道。",
+          "C3": "两国位于同一航道西侧，海上距离较远。",
+          "C5": "塔利亚的海峡港口位于阿岚主要航线东侧。"
+        }
+      }
+    },
+    "C2": {
+      "name": "贝罗王国",
+      "territory": 55,
+      "conventional": 88,
+      "nuclear": 70,
+      "alive": true,
+      "profile": "贝罗是东岸人口和制造业大国，认为黎明航道关系本土安全与国际地位。政府希望加强查验以防止危险物资流入，并争取在新规则中获得主导权；出口企业担心长时间管制损害贸易。其将阿岚的远海存在视为潜在压力，但可以自主判断合作、竞争与降级的代价。",
+      "tags": {
+        "strategic_culture": "民族主义",
+        "foreign_policy": "威权",
+        "war_aim": "地位",
+        "ideology": 4,
+        "threat_perception": "急迫",
+        "comprehensive_power": "霸权",
+        "nuclear_status": "二次核打击",
+        "power_c": 5,
+        "power_e": 4,
+        "power_m": 5,
+        "strategic_will": 4,
+        "stakeholders": {
+          "others": [
+            "C3",
+            "C4",
+            "C5",
+            "C7"
+          ],
+          "adversaries": [
+            "C1"
+          ]
+        },
+        "relative_geography": {
+          "C1": "隔黎明航道相望。",
+          "C4": "北方与卡泽尔接壤。",
+          "C5": "塔利亚港口位于贝罗主要航线西侧。",
+          "C7": "奥斯顿与贝罗北部陆路相连。"
+        }
+      }
+    },
+    "C3": {
+      "name": "瑟维亚共和国",
+      "territory": 53,
+      "conventional": 80,
+      "nuclear": 40,
+      "alive": true,
+      "profile": "瑟维亚是航道西端的远洋贸易与技术强国，重视航道可预期性、保险和中立监督。其企业同时与阿岚、贝罗和塔利亚做生意；政府希望通过多边核查扩大规则影响力，但担心介入过深拖累贸易。与阿岚关系密切不是本局已经成立的安全同盟。",
+      "tags": {
+        "strategic_culture": "国际主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "利益",
+        "ideology": 4,
+        "threat_perception": "中",
+        "comprehensive_power": "强国",
+        "nuclear_status": "有",
+        "power_c": 4,
+        "power_e": 5,
+        "power_m": 4,
+        "strategic_will": 3,
+        "stakeholders": {
+          "others": [
+            "C1",
+            "C2",
+            "C5",
+            "C8"
+          ]
+        },
+        "relative_geography": {
+          "C1": "位于同一航道西侧的远洋区域。",
+          "C5": "需跨海航行至塔利亚港口。",
+          "C8": "航线与通信服务均经埃维尔节点。"
+        }
+      }
+    },
+    "C4": {
+      "name": "卡泽尔共和国",
+      "territory": 51,
+      "conventional": 72,
+      "nuclear": 20,
+      "alive": true,
+      "profile": "卡泽尔是航道北端的地区性拥核强国，与贝罗相邻，依赖塔利亚附近航道运送能源和工业品。它关心本土边境安全、领土完整和检查区军事化，国内对依赖强国存在分歧。它可寻求保护、独立协调或其他策略，并自行评估同盟风险。",
+      "tags": {
+        "strategic_culture": "民族主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "安全",
+        "ideology": 3,
+        "threat_perception": "急迫",
+        "comprehensive_power": "强国",
+        "nuclear_status": "有，但发动打击能力有限",
+        "power_c": 3,
+        "power_e": 3,
+        "power_m": 4,
+        "strategic_will": 4,
+        "stakeholders": {
+          "others": [
+            "C2",
+            "C5",
+            "C7"
+          ]
+        },
+        "relative_geography": {
+          "C2": "与贝罗北部相邻。",
+          "C5": "隔北部近海面对塔利亚的港口与岛屿。",
+          "C7": "与奥斯顿隔山地通道相连。"
+        }
+      }
+    },
+    "C5": {
+      "name": "塔利亚共和国",
+      "territory": 50,
+      "conventional": 62,
+      "nuclear": 0,
+      "alive": true,
+      "profile": "塔利亚管辖黎明海峡主要港口及周边岛屿，体量中等但在航运规则上拥有重要谈判地位。它希望维护主权、港口收入和过境安全，反对他国未经同意接管检查；同时担心航道中断与大国对抗压低收入。它可以平衡各方、提出核查方案或选择其他行动。",
+      "tags": {
+        "strategic_culture": "现实主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "利益",
+        "ideology": 2,
+        "threat_perception": "急迫",
+        "comprehensive_power": "中等",
+        "nuclear_status": "无",
+        "power_c": 3,
+        "power_e": 3,
+        "power_m": 3,
+        "strategic_will": 4,
+        "stakeholders": {
+          "others": [
+            "C1",
+            "C2",
+            "C3",
+            "C4",
+            "C6",
+            "C7",
+            "C8"
+          ]
+        },
+        "relative_geography": {
+          "C1": "阿岚航线穿越海峡西侧。",
+          "C2": "贝罗航线穿越海峡东侧。",
+          "C4": "卡泽尔位于海峡以北。",
+          "C6": "梅林位于海峡南方外海。",
+          "C7": "奥斯顿依靠陆路及塔利亚港口外运。",
+          "C8": "埃维尔通信节点位于海峡南端。"
+        }
+      }
+    },
+    "C6": {
+      "name": "梅林群岛",
+      "territory": 49,
+      "conventional": 42,
+      "nuclear": 0,
+      "alive": true,
+      "profile": "梅林由航道南侧多个岛屿组成，常规军力较弱，高度依赖进口粮食、燃料和海运保险。它最关心供应稳定和避免被迫在强国间选边；希望民用航行受保护，但也有对安全承诺不可靠的担忧。它有自己的外交判断，不自动追随任何国家。",
+      "tags": {
+        "strategic_culture": "进步主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "安全",
+        "ideology": "包容",
+        "threat_perception": "中",
+        "comprehensive_power": "弱",
+        "nuclear_status": "无",
+        "power_c": 2,
+        "power_e": 2,
+        "power_m": 2,
+        "strategic_will": 3,
+        "stakeholders": {
+          "others": [
+            "C1",
+            "C5",
+            "C8"
+          ]
+        },
+        "relative_geography": {
+          "C5": "梅林群岛位于塔利亚南方外海。",
+          "C8": "两国均位于航道南端并由海路相连。"
+        }
+      }
+    },
+    "C7": {
+      "name": "奥斯顿共和国",
+      "territory": 50,
+      "conventional": 55,
+      "nuclear": 0,
+      "alive": true,
+      "profile": "奥斯顿是贝罗北方的内陆能源出口国，主要通过贝罗铁路和塔利亚港口对外运输。它希望提高能源谈判地位、保障出口并避免被单一通道控制；与贝罗经济紧密，同时担心对方检查政策损害其自主权。它可以对多方贸易或安全合作做独立选择。",
+      "tags": {
+        "strategic_culture": "现实主义",
+        "foreign_policy": "威权",
+        "war_aim": "地位",
+        "ideology": 3,
+        "threat_perception": "中",
+        "comprehensive_power": "中等",
+        "nuclear_status": "无",
+        "power_c": 3,
+        "power_e": 3,
+        "power_m": 3,
+        "strategic_will": 3,
+        "stakeholders": {
+          "others": [
+            "C2",
+            "C4",
+            "C5",
+            "C3"
+          ]
+        },
+        "relative_geography": {
+          "C2": "奥斯顿与贝罗北部陆路相连。",
+          "C4": "与卡泽尔隔山地通道相连。",
+          "C5": "能源出口经铁路和塔利亚港口。"
+        }
+      }
+    },
+    "C8": {
+      "name": "埃维尔联邦",
+      "territory": 48,
+      "conventional": 38,
+      "nuclear": 0,
+      "alive": true,
+      "profile": "埃维尔是航道南端以通信、维修和金融服务为主的海岛小国，管理重要海底通信节点。它关注电缆安全、商业中立和海峡通行，与多方企业往来；担心设备故障被误读为敌对破坏并触发报复。它可主动斡旋、寻求保障或采取其他策略。",
+      "tags": {
+        "strategic_culture": "进步主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "利益",
+        "ideology": 2,
+        "threat_perception": "中",
+        "comprehensive_power": "弱",
+        "nuclear_status": "无",
+        "power_c": 2,
+        "power_e": 3,
+        "power_m": 2,
+        "strategic_will": 2,
+        "stakeholders": {
+          "others": [
+            "C1",
+            "C3",
+            "C5",
+            "C6"
+          ]
+        },
+        "relative_geography": {
+          "C5": "海底电缆节点位于塔利亚航道南侧。",
+          "C6": "梅林与埃维尔均处南方海域。",
+          "C3": "与瑟维亚之间存在远洋通信线路。"
+        }
+      }
+    }
+  },
+  "conflicts": {
+    "C1": {
+      "C2": 1.0
+    },
+    "C2": {
+      "C1": 1.0,
+      "C5": 1.0
+    },
+    "C5": {
+      "C2": 1.0
+    }
+  },
+  "threat_history": {},
+  "nuclear_used": []
+}
