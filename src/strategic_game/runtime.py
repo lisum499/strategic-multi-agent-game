@@ -2,7 +2,7 @@
 from __future__ import annotations
 import copy, hashlib, html, json
 from pathlib import Path
-from . import protocol as protocol, rules as rules, alliances as alliances
+from . import protocol as protocol, rules as rules, alliances as alliances, knowledge as knowledge
 
 DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'three_states.json')
 
@@ -127,7 +127,7 @@ def reports(data):
 
 def fingerprint():
     h = hashlib.sha256()
-    for module in (rules, protocol, alliances): h.update(Path(module.__file__).read_bytes())
+    for module in (rules, protocol, alliances, knowledge): h.update(Path(module.__file__).read_bytes())
     h.update(Path(__file__).read_bytes())
     return h.hexdigest()
 

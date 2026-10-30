@@ -34,6 +34,19 @@ OpenAI 兼容服务：
 
 默认场景位于 `src/strategic_game/scenarios/three_states.json`，可复制后用 `--scenario 路径` 指定新场景。国家初始领土、常规力量、核力量和私人画像应显式填写，旧版 C/E/M 场景不能直接当作 v5 场景使用。
 
+国家可在场景中通过 `tags` 显式设置私人标签，同时保留 `profile` 自由文本。例如：
+
+```json
+"tags": {
+  "strategic_culture": "现实主义",
+  "foreign_policy": "维持现状",
+  "war_aim": "安全",
+  "ideology": 3
+}
+```
+
+可选标签和释义见 `src/strategic_game/knowledge/label_dictionary.json`；`ideology` 可使用 1–5 或词典中的“狂热”“包容”，两种口径不会互相转换。没有设置的标签视为未知。仅本国模型接收本国标签和释义；它们是研究草案背景，不改变规则、概率或行动合法性。完整运行记录保存实际使用的词典版本、哈希和对应释义；公开记录不包含私人标签。
+
 数值参数集中在 `src/strategic_game/scenarios/rules.json`；行动名称属于规则框架，应保持稳定。场景可通过 `rule_config` 覆盖需要调整的参数。每次运行保存数值快照和规则代码指纹：
 
 ```bash

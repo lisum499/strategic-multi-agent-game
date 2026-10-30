@@ -19,7 +19,7 @@ strategic-game = "strategic_game.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-strategic_game = ["scenarios/*.json"]
+strategic_game = ["scenarios/*.json", "knowledge/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

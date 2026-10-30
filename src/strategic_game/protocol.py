@@ -14,6 +14,7 @@ from typing import Any
 
 from .rules import DEFAULT_CONFIG, ACTUAL_NUCLEAR
 from .alliances import validate_decision_fields
+from .knowledge import load_dictionary, describe_tags
 
 NUCLEAR_USE = ACTUAL_NUCLEAR
 NUCLEAR_ACTIONS = frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁', *ACTUAL_NUCLEAR, '战略核威胁', '最后核警告'})
@@ -46,6 +47,7 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     countries = state.get('countries')
     if not isinstance(countries, dict) or len(countries) < 2:
         raise V5ValidationError('countries 必须包含至少两个国家，按国家 ID 索引')
+    dictionary, dictionary_hash = load_dictionary()
     for cid, country in countries.items():
         _text(cid, '国家 ID', limit=100)
         if not isinstance(country, dict):
@@ -62,6 +64,13 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
         country.setdefault('alive', True)
         country.setdefault('profile', '')
         _text(country['profile'], f'{cid}.profile', allow_empty=True, limit=10000)
+        if 'tag_knowledge' in country:
+            raise V5ValidationError(f'{cid}.tag_knowledge 由程序生成，不能在场景中指定')
+        if 'tags' in country:
+            try:
+                country['tag_knowledge'] = describe_tags(country['tags'], dictionary, dictionary_hash)
+            except (ValueError, TypeError) as exc:
+                raise V5ValidationError(f'{cid}: {exc}') from exc
     conflicts = state.setdefault('conflicts', {})
     if not isinstance(conflicts, dict):
         raise V5ValidationError('conflicts 必须是有方向的国家 ID 映射')
@@ -201,6 +210,7 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '胜负': f"先退场后胜利。领土至少{config['territory_win_min']}且领先最强对手至少{config['territory_win_gap']}获胜；仅剩一国在场获胜；第{config['max_rounds']}回合无人胜利、全部退场或双方互相投降则无胜者。",
         '盟约': '邀请先仅双方可见，受邀国下轮接受；达成后只公开双方已结盟，所有盟约内容、是否借兵及数值均对他国保密。借兵及返还不是保证，借入方可以不还，其剩余力量归借入方；实际借调在结算时以可用数额和盟约为准。',
         '军力': '各目标投入的常规与核力量加总不得超过本国可用力量和实际成功借调的力量；请求借入不保证成功，实际不足时不可执行超额投入。',
+        '国家画像': '本国已明确设置的标签和释义是私人背景，属于研究草案，不强制行动、不改变概率或规则；缺失标签为未知，不推断其他国家私人标签。',
     }
     amounts = {'conventional': 0, 'nuclear': 0}
     schema = {
