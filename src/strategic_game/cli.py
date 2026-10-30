@@ -46,7 +46,60 @@ def _model_settings(provider) -> dict:
     return settings
 
 
+def cmd_run_v5(args: argparse.Namespace) -> int:
+    from . import v5_runtime as runtime, v5_protocol as protocol, v5_rules as rules
+    if args.max_workers < 1 or args.retries < 0:
+        raise ValueError("max-workers 必须 ≥1，retries 必须 ≥0")
+    scenario_path = args.scenario if args.scenario != DEFAULT_SCENARIO else runtime.DEFAULT_SCENARIO
+    scenario = protocol.validate_scenario(json.loads(Path(scenario_path).read_text(encoding="utf-8")))
+    if args.rounds is not None:
+        if not 1 <= args.rounds <= 30: raise ValueError("v5 rounds 必须在 1 到 30 之间")
+        scenario["max_rounds"] = args.rounds
+    name = "mock" if args.mock else (args.provider or ("openai" if args.base_url else "mock"))
+    if args.mock and args.provider not in (None, "mock"): raise ValueError("--mock 不能与真实模型同时使用")
+    supplied = {k:v for k,v in {"model":args.model,"temperature":args.temperature,"max_tokens":args.max_tokens,"timeout":args.timeout,"base_url":args.base_url,"api_key":args.api_key}.items() if v is not None}
+    if name == "mock" and supplied: raise ValueError("mock 不接受模型参数")
+    if name == "deepseek" and args.base_url: raise ValueError("自定义 base-url 请使用 openai")
+    if args.negotiation_mode: raise ValueError("v5 不支持旧版 negotiation-mode")
+    provider = get_provider(name, **supplied)
+    state = copy.deepcopy(scenario); state["round"] = 1
+    config = rules._config(scenario.get("rule_config")); config["max_rounds"] = scenario["max_rounds"]
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    run_dir = Path(args.out) if args.out else RUNS_DIR / f"{stamp}-v5-{name}"
+    run_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+    data = {"rules_version":"v5.0","decision_protocol":"v5_sealed","source_fingerprint":runtime.fingerprint(),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
+    def save():
+        _atomic_write(run_dir / "run.json", json.dumps(data, ensure_ascii=False, indent=2))
+    save(); print(f"实验目录：{run_dir}", flush=True)
+    history = []
+    try:
+        while not state.get("outcome", {}).get("finished"):
+            decisions, calls, fallbacks = runtime.decisions_for(state, provider, history, config, args.retries, args.no_prompts, calls_sink=data["records"], on_call=save)
+            data["fallback_count"] += fallbacks
+            next_state, settlement = runtime.advance(state, decisions, config)
+            data["fallback_count"] += len(settlement.get("settlement_fallbacks", []))
+            public = runtime.public_round(settlement, decisions, next_state)
+            data["rounds"].append({"round":settlement["round"],"decisions":decisions,"settlement":settlement,"state":copy.deepcopy(next_state),"public":public})
+            state = next_state; history.append(public)
+            data["final_state"] = copy.deepcopy(state); data["result"] = copy.deepcopy(state.get("outcome", {})); save()
+        data["run_status"] = "completed_with_errors" if data["fallback_count"] else "completed"
+    except KeyboardInterrupt:
+        data["run_status"] = "interrupted"; data["error_type"] = "KeyboardInterrupt"
+    except Exception as exc:
+        data["run_status"] = "failed"; data["error_type"] = type(exc).__name__; data["error_message"] = str(exc)[:500] if isinstance(exc, ValueError) else ""
+    save()
+    if data["run_status"] in ("completed", "completed_with_errors"):
+        md, page = runtime.reports(data)
+        _atomic_write(run_dir / "report.md", md); _atomic_write(run_dir / "report.html", page)
+        _atomic_write(run_dir / "public.json", json.dumps({"rules_version":"v5.0","rounds":[r["public"] for r in data["rounds"]],"result":data["result"]}, ensure_ascii=False, indent=2))
+        print(f"完成：{run_dir}\n回看：{run_dir / 'report.html'}\n胜者：{data['result'].get('winner_id') or '无'}（{data['result'].get('reason')}）")
+        return 0 if data["run_status"] == "completed" else 1
+    print(f"运行{data['run_status']}：{data.get('error_type')} {data.get('error_message','')}；记录：{run_dir / 'run.json'}", file=sys.stderr)
+    return 130 if data["run_status"] == "interrupted" else 1
+
+
 def cmd_run(args: argparse.Namespace) -> int:
+    if args.rules_version == "v5": return cmd_run_v5(args)
     if args.max_workers < 1 or args.retries < 0:
         raise ValueError("max-workers 必须 ≥1，retries 必须 ≥0")
     scenario = load_scenario(args.scenario)
@@ -146,6 +199,16 @@ def cmd_replay(args: argparse.Namespace) -> int:
         print(f"找不到文件：{path}", file=sys.stderr)
         return 1
     run_data = json.loads(path.read_text(encoding="utf-8"))
+    if run_data.get("rules_version") == "v5.0" and not getattr(args, "show_only", False):
+        from . import v5_runtime as runtime
+        if run_data.get("source_fingerprint") != runtime.fingerprint():
+            print("规则代码与原运行不一致，无法精确回放", file=sys.stderr); return 1
+        ok, message = runtime.replay(run_data)
+        print(f"v5 回放：{message}")
+        if args.report and ok:
+            md, page = runtime.reports(run_data)
+            _atomic_write(path.parent / "report.md", md); _atomic_write(path.parent / "report.html", page)
+        return 0 if ok else 1
     if getattr(args, "show_only", False):
         print(json.dumps({"rules_version": run_data.get("rules_version"),
                           "decision_protocol": run_data.get("decision_protocol", "legacy"),
@@ -174,10 +237,11 @@ def main(argv: list[str] | None = None) -> int:
     # Original CLI accepted options directly; retain its --mock/--rounds shape.
     if argv and argv[0] not in ("run", "replay", "-h", "--help"):
         argv.insert(0, "run")
-    parser = argparse.ArgumentParser(description="v4.1 零和危机模拟：整轮密封决策")
+    parser = argparse.ArgumentParser(description="战略多智能体模拟：整轮密封决策")
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="跑一局")
+    run.add_argument("--rules-version", choices=("v5", "v4"), default="v5", help="规则版本，默认 v5")
     run.add_argument("--provider", default=None, choices=("mock", "deepseek", "openai"))
     run.add_argument("--mock", action="store_true", help="兼容旧入口，等价于 --provider mock")
     run.add_argument("--scenario", default=DEFAULT_SCENARIO)

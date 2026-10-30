@@ -1,0 +1,15 @@
+{
+  "rules_version": "v5.0",
+  "scenario_id": "v5_three_states",
+  "name": "三国虚构危机 v5.0",
+  "world_context": "三个虚构国家围绕地区安全和战略利益展开竞争。",
+  "max_rounds": 30,
+  "countries": {
+    "C1": {"name": "阿兰", "territory": 50, "conventional": 80, "nuclear": 40, "alive": true, "profile": "维护自身安全和地区稳定。"},
+    "C2": {"name": "博瑞", "territory": 50, "conventional": 75, "nuclear": 30, "alive": true, "profile": "争取更大的地区影响力。"},
+    "C3": {"name": "希兰", "territory": 50, "conventional": 55, "nuclear": 0, "alive": true, "profile": "维护自主和领土安全。"}
+  },
+  "conflicts": {},
+  "threat_history": {},
+  "nuclear_used": []
+}

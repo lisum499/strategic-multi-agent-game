@@ -34,6 +34,8 @@ class CliMigrationTest(unittest.TestCase):
     def invoke(self, arguments):
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            if arguments[0] != "replay":
+                arguments = (["run", "--rules-version", "v4"] + arguments[1:] if arguments[0] == "run" else ["run", "--rules-version", "v4"] + arguments)
             status = cli.main(arguments)
         return status, output.getvalue()
 
