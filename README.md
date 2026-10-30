@@ -34,18 +34,18 @@ OpenAI 兼容服务：
 
 默认场景位于 `src/strategic_game/scenarios/three_states.json`，可复制后用 `--scenario 路径` 指定新场景。国家初始领土、常规力量、核力量和私人画像应显式填写，旧版 C/E/M 场景不能直接当作 v5 场景使用。
 
-国家可在场景中通过 `tags` 显式设置私人标签，同时保留 `profile` 自由文本。例如：
+国家和国际环境可以显式配置原始资料中的标签；未设置表示未知，不自动推断。完整的虚构配置示例见 `src/strategic_game/scenarios/full_tags_example.json`，可用 `--scenario` 指定运行。
 
-```json
-"tags": {
-  "strategic_culture": "现实主义",
-  "foreign_policy": "维持现状",
-  "war_aim": "安全",
-  "ideology": 3
-}
-```
+场景根对象的 `world_tags` 是公共信息：`polarity` 可选单极、两极、多极；`system_environment` 可选紧张/复杂、宽松/复杂、紧张/清晰、宽松/清晰；`strategic_environment` 可选包容、约束。
 
-可选标签和释义见 `src/strategic_game/knowledge/label_dictionary.json`；`ideology` 可使用 1–5 或词典中的“狂热”“包容”，两种口径不会互相转换。没有设置的标签视为未知。仅本国模型接收本国标签和释义；它们是研究草案背景，不改变规则、概率或行动合法性。完整运行记录保存实际使用的词典版本、哈希和对应释义；公开记录不包含私人标签。
+各国 `tags` 只向本国模型可见，支持：
+
+- `strategic_culture`、`foreign_policy`、`war_aim`、`ideology`。意识形态使用 1–5 或“狂热”“包容”，两种口径不自动换算。
+- `threat_perception`（急迫、中、缓和）、`comprehensive_power`（霸权、强国、中等、弱）和 `nuclear_status`（无、有，但发动打击能力有限、有、二次核打击）。
+- `power_c`、`power_e`、`power_m`、`strategic_will` 使用 1–5，不自动转换成 v5 领土和军力数值。
+- `stakeholders` 使用 `allies`、`adversaries`、`others` 数组引用其他国家 ID；也可用 `description` 描述未在场景中单独建模的集团；这些是本国私人设定或认知，不自动建立真实盟约。`relative_geography` 以其他国家 ID 为键，填写地理关系描述。
+
+词典 `src/strategic_game/knowledge/label_dictionary.json` 保存两份 tag 资料的正文、表格、脚注和对应释义。原资料中的研究观点及相互分歧按来源保留；其中旧版 M 档位、核使用假说、射程和二次打击不自动变成 v5 结算或行动限制。每轮要求模型填写私有 `threat_assessment`，可留空；上次有效判断仅供本国下一轮参考，是模型主观判断而非公开事实。完整运行记录保存实际使用的词典版本、哈希和释义，公开记录不会包含私人标签或威胁判断。
 
 数值参数集中在 `src/strategic_game/scenarios/rules.json`；行动名称属于规则框架，应保持稳定。场景可通过 `rule_config` 覆盖需要调整的参数。每次运行保存数值快照和规则代码指纹：
 

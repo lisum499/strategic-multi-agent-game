@@ -1,0 +1,74 @@
+{
+  "rules_version": "v5.0",
+  "scenario_id": "v5_full_tags_example",
+  "name": "虚构三国标签配置示例",
+  "world_context": "三个虚构国家围绕地区安全和战略利益展开竞争。",
+  "max_rounds": 30,
+  "countries": {
+    "C1": {
+      "name": "阿兰",
+      "territory": 50,
+      "conventional": 80,
+      "nuclear": 40,
+      "alive": true,
+      "profile": "维护自身安全和地区稳定。",
+      "tags": {
+        "strategic_culture": "现实主义",
+        "foreign_policy": "维持现状",
+        "war_aim": "安全",
+        "ideology": 3,
+        "threat_perception": "中",
+        "comprehensive_power": "强国",
+        "nuclear_status": "有",
+        "power_c": 3,
+        "power_e": 4,
+        "power_m": 4,
+        "strategic_will": 3,
+        "stakeholders": {
+          "allies": [
+            "C2"
+          ],
+          "adversaries": [
+            "C3"
+          ]
+        },
+        "relative_geography": {
+          "C2": "两国接壤",
+          "C3": "两国隔海相望"
+        }
+      }
+    },
+    "C2": {
+      "name": "博瑞",
+      "territory": 50,
+      "conventional": 75,
+      "nuclear": 30,
+      "alive": true,
+      "profile": "争取更大的地区影响力。",
+      "tags": {
+        "strategic_culture": "国际主义",
+        "ideology": "狂热"
+      }
+    },
+    "C3": {
+      "name": "希兰",
+      "territory": 50,
+      "conventional": 55,
+      "nuclear": 0,
+      "alive": true,
+      "profile": "维护自主和领土安全。",
+      "tags": {
+        "strategic_culture": "进步主义",
+        "nuclear_status": "无"
+      }
+    }
+  },
+  "conflicts": {},
+  "threat_history": {},
+  "nuclear_used": [],
+  "world_tags": {
+    "polarity": "多极",
+    "system_environment": "紧张/复杂",
+    "strategic_environment": "约束"
+  }
+}

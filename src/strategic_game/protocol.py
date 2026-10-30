@@ -14,7 +14,7 @@ from typing import Any
 
 from .rules import DEFAULT_CONFIG, ACTUAL_NUCLEAR
 from .alliances import validate_decision_fields
-from .knowledge import load_dictionary, describe_tags
+from .knowledge import load_dictionary, describe_tags, describe_world_tags
 
 NUCLEAR_USE = ACTUAL_NUCLEAR
 NUCLEAR_ACTIONS = frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁', *ACTUAL_NUCLEAR, '战略核威胁', '最后核警告'})
@@ -48,6 +48,13 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(countries, dict) or len(countries) < 2:
         raise V5ValidationError('countries 必须包含至少两个国家，按国家 ID 索引')
     dictionary, dictionary_hash = load_dictionary()
+    if 'world_tag_knowledge' in state:
+        raise V5ValidationError('world_tag_knowledge 由程序生成，不能在场景中指定')
+    if 'world_tags' in state:
+        try:
+            state['world_tag_knowledge'] = describe_world_tags(state['world_tags'], dictionary, dictionary_hash)
+        except (ValueError, TypeError) as exc:
+            raise V5ValidationError(f'world_tags: {exc}') from exc
     for cid, country in countries.items():
         _text(cid, '国家 ID', limit=100)
         if not isinstance(country, dict):
@@ -68,7 +75,7 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
             raise V5ValidationError(f'{cid}.tag_knowledge 由程序生成，不能在场景中指定')
         if 'tags' in country:
             try:
-                country['tag_knowledge'] = describe_tags(country['tags'], dictionary, dictionary_hash)
+                country['tag_knowledge'] = describe_tags(country['tags'], dictionary, dictionary_hash, country_ids=countries, country_id=cid)
             except (ValueError, TypeError) as exc:
                 raise V5ValidationError(f'{cid}: {exc}') from exc
     conflicts = state.setdefault('conflicts', {})
@@ -133,7 +140,7 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
     if not isinstance(data, dict):
         raise V5ValidationError('决策必须是对象')
     required = {'round','country_id','snapshot_hash','assessment','forecast','declaration',
-                'rationale','actions','alliance_invites','alliance_responses',
+                'rationale','threat_assessment','actions','alliance_invites','alliance_responses',
                 'alliance_breaks','borrows','returns'}
     if set(data) != required:
         raise V5ValidationError(f'决策字段不匹配：缺少 {sorted(required-set(data))}；多余 {sorted(set(data)-required)}')
@@ -143,6 +150,7 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
     for key in ('assessment','forecast','rationale'):
         _text(data[key], key)
     _text(data['declaration'], 'declaration', allow_empty=True)
+    _text(data['threat_assessment'], 'threat_assessment', allow_empty=True)
     try:
         validate_decision_fields(data)
     except ValueError as exc:
@@ -210,7 +218,7 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '胜负': f"先退场后胜利。领土至少{config['territory_win_min']}且领先最强对手至少{config['territory_win_gap']}获胜；仅剩一国在场获胜；第{config['max_rounds']}回合无人胜利、全部退场或双方互相投降则无胜者。",
         '盟约': '邀请先仅双方可见，受邀国下轮接受；达成后只公开双方已结盟，所有盟约内容、是否借兵及数值均对他国保密。借兵及返还不是保证，借入方可以不还，其剩余力量归借入方；实际借调在结算时以可用数额和盟约为准。',
         '军力': '各目标投入的常规与核力量加总不得超过本国可用力量和实际成功借调的力量；请求借入不保证成功，实际不足时不可执行超额投入。',
-        '国家画像': '本国已明确设置的标签和释义是私人背景，属于研究草案，不强制行动、不改变概率或规则；缺失标签为未知，不推断其他国家私人标签。',
+        '国家画像': '本国明确设置的标签、主观认知与释义是私人背景；世界标签是公共背景。来源之间存在不同表述，相关假说带特定条件，不自动改变规则或强制决策；缺失为未知，不推断其他国家私人标签。请根据可见信息给出当轮私人威胁评估，并注明依据与不确定性。',
     }
     amounts = {'conventional': 0, 'nuclear': 0}
     schema = {
@@ -218,6 +226,7 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         'snapshot_hash': situation['snapshot_hash'],
         'assessment': '当前局势和可信度评估', 'forecast': '对其他国家行动和结果的预测',
         'declaration': '公开声明，可以为空或发表真假声明', 'rationale': '私有简短决策依据',
+        'threat_assessment': '私有：根据当前可见信息评估当前局势的威胁，注明对象、依据与不确定性；无判断时留空',
         'actions': [{'target_id': '对手国家ID', 'action_id': '行动名称', **amounts}],
         'alliance_invites': [{'target_id': '国家ID', 'offer': amounts, 'request': amounts,
                               'offer_return': amounts, 'request_return': amounts}],
@@ -238,7 +247,7 @@ def make_fallback(situation: dict[str, Any]) -> dict[str, Any]:
         'round': situation['round'], 'country_id': situation['country_id'],
         'snapshot_hash': situation['snapshot_hash'],
         'assessment': '系统默认，无有效评估', 'forecast': '系统默认，无有效预测',
-        'declaration': '', 'rationale': 'SYSTEM_FALLBACK', 'actions': [],
+        'declaration': '', 'rationale': 'SYSTEM_FALLBACK', 'threat_assessment': '', 'actions': [],
         'alliance_invites': [], 'alliance_responses': [], 'alliance_breaks': [],
         'borrows': [], 'returns': [],
     }

@@ -7,7 +7,8 @@ from . import protocol as protocol, rules as rules, alliances as alliances, know
 DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'three_states.json')
 
 def public_state(state):
-    return {'round': state['round'], 'countries': {k: {'name': v['name'], 'territory': v['territory'], 'alive': v['alive']} for k,v in state['countries'].items()},
+    return {**({'world_tags': copy.deepcopy(state['world_tags']), 'world_tag_knowledge': copy.deepcopy(state['world_tag_knowledge'])} if 'world_tags' in state else {}),
+            'round': state['round'], 'countries': {k: {'name': v['name'], 'territory': v['territory'], 'alive': v['alive']} for k,v in state['countries'].items()},
             'conflicts': copy.deepcopy(state.get('conflicts', {})), 'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
             'alliances': alliances.view(state)}
 
@@ -19,6 +20,9 @@ def situation_for(state, country, history, config):
     private_state['rule_config'] = copy.deepcopy(config)
     # Opponent forces are unknown, rather than fabricated zero values.
     private_state['alliance_info'] = alliances.view(state, country)
+    own_observation = state.get('private_threat_assessments', {}).get(country)
+    if own_observation is not None:
+        private_state['last_threat_assessment'] = copy.deepcopy(own_observation)
     private_state['world_context'] = state.get('world_context', '')
     private_state['history'] = copy.deepcopy(history)
     situation = {'round': state['round'], 'country_id': country, 'state': private_state}
@@ -86,6 +90,10 @@ def advance(state, decisions, config):
     rules.validate_decisions(new, effective, config)
     new, record = rules.settle_round(new, effective, config)
     alliances.break_conflicting_alliances(new)
+    for cid, decision in effective.items():
+        assessment = decision.get('threat_assessment', '')
+        if assessment:
+            new.setdefault('private_threat_assessments', {})[cid] = {'round': record['round'], 'text': assessment}
     record['alliance_events'] = alliance_events
     record['settlement_fallbacks'] = replacements
     record['effective_decisions'] = effective
