@@ -190,5 +190,3 @@ def get_provider(name: str, **kwargs: Any) -> Provider:
     if name == "openai":
         return OpenAICompatibleProvider(**kwargs)
     raise ProviderError(f"未知 provider：{name}")
-
-
