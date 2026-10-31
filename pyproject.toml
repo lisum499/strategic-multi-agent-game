@@ -11,11 +11,12 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-desktop = ["pyinstaller>=6.0"]
+desktop = ["pyinstaller>=6.0", "pywebview>=5.0"]
 
 [project.scripts]
 strategic-game = "strategic_game.cli:main"
 strategic-game-gui = "strategic_game.gui:main"
+strategic-game-workbench = "strategic_game.web_desktop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

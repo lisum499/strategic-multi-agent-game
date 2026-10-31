@@ -13,12 +13,14 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests
 ```
 
-## 桌面界面与 Windows EXE
+## React 桌面界面与 Windows EXE
 
-源码环境可直接启动桌面界面：
+桌面工作台使用 React、TypeScript 和 pywebview，Python 规则引擎保持不变。首次从源码启动前构建前端：
 
 ```bash
-PYTHONPATH=src python3 -m strategic_game.gui
+cd frontend && npm install && npm run build && cd ..
+python3 -m pip install -e '.[desktop]'
+PYTHONPATH=src python3 -m strategic_game.web_desktop
 ```
 
 界面支持增删和编辑任意数量的国家，设置国家存在值、常规与核力量、战略文化、意识形态、国家画像、世界背景、模型 API 和回合数。左侧实时显示模型调用与校验进度，右侧分别展示逐轮完整决策和世界状态变化；API Key 只传给后台进程，不写入场景或运行记录。运行中可停止，并可通过“断点续跑”选择原实验的 `run.json`。
@@ -35,7 +37,7 @@ scripts\run_windows_gui.bat
 scripts\build_windows_exe.bat
 ```
 
-脚本会自动查找可用的 Python 3.10+，创建 `.venv`、安装依赖、运行测试，并生成 `dist\StrategicMultiAgentGame.exe`。PyInstaller 不能在 Linux 上直接交叉编译 Windows EXE，因此正式 Windows 文件应在 Windows 环境中执行该脚本构建。
+脚本会自动查找可用的 Python 3.10+，创建 `.venv`、安装 Python 与 npm 依赖、构建 React 前端、运行测试，并生成 `dist\StrategicMultiAgentGame.exe`。Windows 构建机还需安装 Node.js 22。PyInstaller 不能在 Linux 上直接交叉编译 Windows EXE，因此正式 Windows 文件应在 Windows 环境中执行该脚本构建。
 
 脚本会为 Python 启用 UTF-8 模式，避免中文 Windows 默认 GBK 编码导致 JSON 场景或测试记录读取失败。手动执行 Python 命令时，可先在 PowerShell 设置 `$env:PYTHONUTF8="1"` 和 `$env:PYTHONIOENCODING="utf-8"`。
 

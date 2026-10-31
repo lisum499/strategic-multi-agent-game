@@ -38,10 +38,25 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 .venv\Scripts\python.exe -m unittest discover -s tests -q
 if errorlevel 1 exit /b 1
+.venv\Scripts\python.exe -c "import webview"
+if errorlevel 1 exit /b 1
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo Node.js and npm are required to build the React frontend.
+  exit /b 1
+)
+pushd frontend
+call npm install
+if errorlevel 1 exit /b 1
+call npm run build
+if errorlevel 1 exit /b 1
+popd
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name StrategicMultiAgentGame ^
   --collect-data strategic_game ^
-  desktop_app.py
+  --collect-all webview ^
+  --add-data "frontend\dist;web_dist" ^
+  web_app.py
 if errorlevel 1 exit /b 1
 
 echo.

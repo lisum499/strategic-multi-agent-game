@@ -33,9 +33,17 @@ if not exist .venv (
   %PYTHON_CMD% -m venv .venv
   if errorlevel 1 goto :error
 )
-.venv\Scripts\python.exe -m pip install -e .
+.venv\Scripts\python.exe -m pip install -e ".[desktop]"
 if errorlevel 1 goto :error
-.venv\Scripts\python.exe -m strategic_game.gui
+where npm >nul 2>nul
+if errorlevel 1 goto :error
+pushd frontend
+call npm install
+if errorlevel 1 goto :error
+call npm run build
+if errorlevel 1 goto :error
+popd
+.venv\Scripts\python.exe -m strategic_game.web_desktop
 exit /b %errorlevel%
 
 :error
