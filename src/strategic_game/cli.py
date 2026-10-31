@@ -108,11 +108,26 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
         data = {"rules_version":"v6.0","decision_protocol":"v6_sealed","source_fingerprint":runtime.fingerprint(),"config_fingerprint":runtime.config_fingerprint(config),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"resume_events":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
     def save():
         _atomic_write(run_dir / "run.json", json.dumps(data, ensure_ascii=False, indent=2))
+    def save_call_progress():
+        save()
+        call = data["records"][-1]
+        prefix = f"[第 {call['round']} 轮] {call['country_id']} 尝试 {call['attempt']}/{args.retries + 1}"
+        if call["status"] == "started":
+            print(f"{prefix}：正在请求模型", flush=True)
+        elif call["status"] == "completed":
+            print(f"{prefix}：决策已通过校验", flush=True)
+        else:
+            print(f"{prefix}：失败（{call.get('error') or '未知错误'}）", flush=True)
     save(); print(f"{'续跑' if resumed else '实验'}目录：{run_dir}", flush=True)
     try:
         while not state.get("outcome", {}).get("finished"):
-            decisions, calls, fallbacks = runtime.decisions_for(state, provider, history, config, args.retries, args.no_prompts, calls_sink=data["records"], on_call=save)
+            living_count = sum(1 for country in state["countries"].values() if country.get("alive", True))
+            print(f"[第 {state['round']} 轮] 开始收集 {living_count} 个在场国家的密封决策", flush=True)
+            decisions, calls, fallbacks = runtime.decisions_for(state, provider, history, config, args.retries, args.no_prompts, calls_sink=data["records"], on_call=save_call_progress)
             data["fallback_count"] += fallbacks
+            if fallbacks:
+                print(f"[第 {state['round']} 轮] {fallbacks} 个国家启用保守兜底决策", flush=True)
+            print(f"[第 {state['round']} 轮] 决策收集完成，正在统一结算", flush=True)
             next_state, settlement = runtime.advance(state, decisions, config)
             data["fallback_count"] += len(settlement.get("settlement_fallbacks", []))
             public = runtime.public_round(settlement, decisions, next_state)
@@ -121,6 +136,9 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
                                    "state":copy.deepcopy(next_state),"public":public})
             state = next_state; history.append(public)
             data["final_state"] = copy.deepcopy(state); data["result"] = copy.deepcopy(state.get("outcome", {})); save()
+            print(f"[第 {settlement['round']} 轮] 结算完成；下一状态："
+                  f"{'游戏结束' if state.get('outcome', {}).get('finished') else '第 ' + str(state['round']) + ' 轮'}",
+                  flush=True)
         data["run_status"] = "completed_with_errors" if data["fallback_count"] else "completed"
     except KeyboardInterrupt:
         data["run_status"] = "interrupted"; data["error_type"] = "KeyboardInterrupt"
