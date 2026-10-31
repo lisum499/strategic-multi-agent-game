@@ -97,8 +97,13 @@ def _config(config: dict | None) -> dict:
             raise ValueError(f'行动数值符号不合法: {name}')
     for key in ('conventional_intensity_divisor','nuclear_intensity_divisor','capability_offset','nuclear_ipg_scale'):
         if number(c[key]) <= 0: raise ValueError(f'{key} 必须大于0')
-    for key in ('ipg_win_min','ipg_win_gap','threat_effect','conventional_loss_rate','capability_min','capability_max','nuclear_ipg_max_bonus','second_strike_reserve_fraction'):
+    for key in ('ipg_win_min','ipg_win_gap','threat_effect','conventional_loss_rate','capability_min','capability_max','nuclear_ipg_max_bonus','second_strike_reserve_fraction','diplomatic_pressure_cost_rate','economic_pressure_cost_rate'):
         if number(c[key]) < 0: raise ValueError(f'{key} 必须非负')
+    multipliers = c.get('repeat_pressure_multipliers')
+    if (not isinstance(multipliers, list) or not multipliers
+            or any(not ZERO < number(value) <= 1 for value in multipliers)
+            or any(number(multipliers[index]) > number(multipliers[index - 1]) for index in range(1, len(multipliers)))):
+        raise ValueError('repeat_pressure_multipliers 必须是非空、递减且大于0不超过1的数组')
     if number(c['capability_min']) > number(c['capability_max']): raise ValueError('战损倍率上下界无效')
     if not ZERO < number(c['second_strike_reserve_fraction']) <= 1:
         raise ValueError('second_strike_reserve_fraction 必须大于0且不超过1')
@@ -204,6 +209,7 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     history = current.setdefault('threat_history', {})
     old_conflicts = deepcopy(conflicts)
     old_history = deepcopy(history)
+    old_streaks = current.get('pressure_streaks', {})
     living_at_start = sorted(cid for cid,c in countries.items() if c.get('alive',True))
     round_number = int(current.get('round', 1))
     choices = {(cid, a['target_id']): a for cid,d in decisions.items() for a in d.get('actions',[])}
@@ -235,9 +241,28 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     old_nuclear_users = set(current.get('nuclear_used', []))
     nuclear_users = old_nuclear_users | {a for (a,_),v in choices.items() if v['action_id'] in ACTUAL_NUCLEAR}
     current['nuclear_used'] = sorted(nuclear_users)
+    pressure_streaks = {}
+    effective_deltas = {}
+    pressure_details = {}
+    multipliers = [number(value) for value in cfg['repeat_pressure_multipliers']]
+    for (actor, target), choice in sorted(choices.items()):
+        name = choice['action_id']
+        raw = number(cfg['actions'][name])
+        category = _presence_category(name)
+        count = 0
+        multiplier = Decimal(1)
+        if raw > 0:
+            previous = old_streaks.get(actor, {}).get(target, {})
+            count = int(previous.get('count', 0)) + 1 if previous.get('category') == category else 1
+            multiplier = multipliers[min(count - 1, len(multipliers) - 1)]
+            pressure_streaks.setdefault(actor, {})[target] = {'category': category, 'count': count}
+        effective_deltas[(actor, target)] = quant(raw * multiplier)
+        pressure_details[(actor, target)] = {'raw_delta': out(raw), 'effective_delta': out(effective_deltas[(actor, target)]),
+                                             'category': category, 'streak': count, 'multiplier': out(multiplier)}
+    current['pressure_streaks'] = pressure_streaks
     updated_threats = {}
     for (a,b),choice in sorted(choices.items()):
-        name=choice['action_id']; delta=number(cfg['actions'][name])
+        name=choice['action_id']; delta=effective_deltas[(a,b)]
         old=_get(old_conflicts,a,b); old_threat=_get(old_history,a,b)
         new=max(ZERO,old+delta)
         # Historical threat contributions cannot exceed the remaining level.
@@ -261,16 +286,13 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
         if aa==bb=='战略核战争': mutual_nuclear.append((a,b))
         if aa==bb=='完全投降': mutual_surrender.append((a,b))
         na,nb=_get(conflicts,a,b),_get(conflicts,b,a)
-        prior_a=min(_get(old_history,a,b),na)
-        prior_b=min(_get(old_history,b,a),nb)
-        # Current threats contribute just this round; previous threat increments never recur.
-        def effective(who,other,name,level,prior):
-            base=max(ZERO,level-prior-updated_threats.get((who,other),ZERO))
-            if name in THREATS:
-                d=number(cfg['actions'][name]) if who in nuclear_users or other in nuclear_users else number(cfg['threat_effect'])
-                return base+d
-            return base
-        ea=effective(a,b,aa,na,prior_a); eb=effective(b,a,bb,nb,prior_b)
+        def effective_increment(who, other, name):
+            value = effective_deltas.get((who, other), ZERO)
+            if name in THREATS and who not in nuclear_users and other not in nuclear_users:
+                multiplier = number(pressure_details[(who, other)]['multiplier'])
+                return quant(number(cfg['threat_effect']) * multiplier)
+            return value
+        ea=effective_increment(a,b,aa); eb=effective_increment(b,a,bb)
         difference=abs(ea-eb)
         if (aa in ACTUAL_NUCLEAR and bb in CONVENTIONAL_MILITARY) or (bb in ACTUAL_NUCLEAR and aa in CONVENTIONAL_MILITARY):
             theta=Decimal(1)+min(difference/number(cfg['nuclear_ipg_scale']),number(cfg['nuclear_ipg_max_bonus']))
@@ -312,9 +334,27 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
                 combat_losses[cid][kind]+=loss
                 item_losses[cid][kind]=out(loss)
         logs.append({'parties':[a,b],'actions':{a:aa,b:bb}, 'levels':{a:out(na),b:out(nb)},
-                     'effective_levels':{a:out(ea),b:out(eb)}, 'ipg_claim':out(claim),
+                     'effective_increments':{a:out(ea),b:out(eb)},
+                     'pressure':{a:pressure_details.get((a,b), {'raw_delta':0,'effective_delta':0,'category':'status_quo','streak':0,'multiplier':1}),
+                                 b:pressure_details.get((b,a), {'raw_delta':0,'effective_delta':0,'category':'status_quo','streak':0,'multiplier':1})},
+                     'ipg_claim':out(claim),
                      'ipg_winner':winner, 'presence_claims':{k:out(v) for k,v in presence_claims.items()},
                      'theta':out(theta),'intensity':out(intensity),'losses':item_losses})
+    pressure_costs=[]
+    for (actor, target), choice in sorted(choices.items()):
+        name = choice['action_id']; effective_delta = max(ZERO, effective_deltas[(actor, target)])
+        if name in DIPLOMATIC_ACTIONS:
+            field, rate = 'soft_presence', number(cfg['diplomatic_pressure_cost_rate'])
+        elif name in ECONOMIC_ACTIONS:
+            field, rate = 'economic_presence', number(cfg['economic_pressure_cost_rate'])
+        else:
+            continue
+        requested = quant(effective_delta * rate)
+        charged = min(number(countries[actor][field]), requested)
+        countries[actor][field] = out(number(countries[actor][field]) - charged)
+        pressure_costs.append({'actor':actor, 'target':target, 'action_id':name, 'dimension':field,
+                               'effective_delta':out(effective_delta), 'rate':out(rate),
+                               'requested':out(requested), 'charged':out(charged)})
     ledger=[]
     for payer in living_at_start:
         payer_claims=claims[payer]
@@ -378,5 +418,6 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     current['round'] = round_number if reason else round_number+1
     current['outcome']={'finished':reason is not None, 'winner_id':winner, 'reason':reason}
     return current, {'round':round_number,'pairs':logs,'presence_transfers':ledger,
+                     'pressure_costs':pressure_costs,
                      'automatic_second_strikes':automatic_second_strikes,
                      'outcome':deepcopy(current['outcome'])}

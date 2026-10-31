@@ -119,6 +119,7 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
             _number(amount, f'conflicts.{src}.{dst}')
     state.setdefault('nuclear_used', [])
     state.setdefault('threat_history', {})
+    state.setdefault('pressure_streaks', {})
     state.setdefault('max_rounds', 30)
     if not isinstance(state['max_rounds'], int) or isinstance(state['max_rounds'], bool) or not 1 <= state['max_rounds'] <= 30:
         raise V6ValidationError('max_rounds 必须是1至30的整数')
@@ -256,18 +257,20 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
     system = (
         '你扮演虚构国家，先评估现状、再预测其他国家、最后密封提交声明和行动。'
         '各国在相同轮初状态同时决策，不能看到他国当轮未公开的声明或行动；'
-        '声明可为真假消息，必须区分声称与公开事实。只返回 JSON，不能有解释。'
+        '声明可为真假消息。历史中的unverified_declarations仅表示某国曾公开声称，不证明内容真实或已经发生；'
+        '只有当前状态和confirmed_facts才是规则引擎确认的事实。只返回 JSON，不能有解释。'
     )
     config = {**DEFAULT_CONFIG, **situation['state'].get('rule_config', {})}
     rules = {
         '行动菜单与增量': config['actions'],
         '完整可调数值参数': config,
         '回合': '评估、预测、公开声明、私有理由、对各对手的行动；全部国家密封提交后统一揭示并结算。',
-        '冲突': '各国对每个目标独立累计冲突值，行动数值为增减量，下限0上不封顶；值为0不得降级。各场战斗仅双方直接参加，但一国可同时对多个对手行动。',
+        '冲突': '各国对每个目标独立累计冲突值，行动数值为增减量，下限0上不封顶；值为0不得降级。累计冲突只用于行动门槛和威胁认知，不会在以后回合重复产生存在收益。各场战斗仅双方直接参加，但一国可同时对多个对手行动。',
         '核资格': '行动门槛是本轮开始时行动方对该目标的有向累计冲突值。例如A对B选择门槛45的有限核武器使用，必须先有conflicts[A][B]>=45；conflicts[B][A]不能代替，本轮行动新增值也不能用于满足本轮自身门槛。核信号、核预备、核示威、核威胁及核使用均须先达到各自在actions中的数值。有限核武器使用、升级性核行动、扩大核打击行动和战略核战争为实际核使用，还须拥有并投入核力量。战略核威胁和最后核警告仅是威胁；达到门槛只产生资格，不自动使用。',
         '军事能力与核行动': '系统没有nuclear_status和region，当前公开nuclear直接决定权限并随借调、归还和战损动态变化。nuclear=0不能选择核行动；1–40只能选择门槛值低于45.0的核行动；nuclear>=41可以选择所有核行动并具备自动二次打击。核行动不检查地理范围。开局常规力量低于40时核力量必须为0，但回合中常规力量变化不会自动增加nuclear。具备二次打击的国家遭受升级性核行动、扩大核打击行动或战略核战争时，由主持人使用受保护核力量自动报复；有限核武器使用不触发自动二次打击。',
-        '全球存在指数': f"IPG=0.43×经济存在+0.21×军事存在+0.36×软实力存在，由程序实时计算，不能直接修改。行动后按双边累计值差计算IPG优势；核使用对常规时系数取1+min(差值/{config['nuclear_ipg_scale']},{config['nuclear_ipg_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮增量按{config['threat_effect']}计入优势，本轮以后不重复计入。",
-        '存在转移': '优势按胜方行动分配：外交主要改变软实力存在，经济行动主要改变经济存在，常规军事主要改变军事存在，核行动同时改变经济、军事与软实力存在。支付方按国家ID升序、再按维度结算；每维不足则降至0。借入军力只影响可投入力量，不直接增加军事存在。',
+        '全球存在指数': f"IPG=0.43×经济存在+0.21×军事存在+0.36×软实力存在，由程序实时计算，不能直接修改。本轮按双方有效行动增量之差计算IPG优势；核使用对常规时系数取1+min(差值/{config['nuclear_ipg_scale']},{config['nuclear_ipg_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮有效增量按基础值{config['threat_effect']}及重复衰减倍率计入优势。",
+        '存在转移': f"只比较双方本轮有效行动增量，历史累计冲突不重复产生收益。同一国家连续对同一目标使用同类正增量行动时，增量依次乘以{config['repeat_pressure_multipliers']}，中断或更换类别后重置。外交施压另从行动方软实力存在扣除有效增量×{config['diplomatic_pressure_cost_rate']}，经济施压从行动方经济存在扣除有效增量×{config['economic_pressure_cost_rate']}。优势按胜方行动分配：外交主要改变软实力，经济主要改变经济存在，常规军事主要改变军事存在，核行动影响三个维度。",
+        '事实与声明': 'unverified_declarations是未经验证的公开说法，可以真实、虚假或尚未执行，不得据此断言会议、协议、撤销措施、部署或其他事件已经发生。confirmed_facts、当前世界状态和规则结算事件才可作为已确认事实。',
         '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",
         '胜负': f"先退场后胜利。IPG降至0则退场；IPG至少{config['ipg_win_min']}且领先最强对手至少{config['ipg_win_gap']}获胜；仅剩一国在场获胜。若所有其他在场国家同轮都向同一国家完全投降，该国获胜；只剩两个在场国家且双方同轮互相完全投降时无胜者。部分国家投降不使任何国家退场。第{config['max_rounds']}回合无人胜利或全部退场时无胜者。",
         '盟约': '邀请和成立后的联盟默认只对双方可见。受邀国只能在下一轮接受。借调请求也跨轮处理：本轮borrows只创建请求，下一轮出借方用loan_responses接受或拒绝；未回应视为拒绝并终止盟约。借入方可用requires_loan_request_ids声明条件行动，但看不到出借方同轮回应。仅当一方从另一方实际借入且尚未归还的常规力量或核力量中，任一项累计达到1时，联盟强制公开；公开后不会恢复秘密。合同、请求、回应和数值对其他国家保密。',

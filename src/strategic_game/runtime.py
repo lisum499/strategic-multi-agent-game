@@ -14,7 +14,9 @@ def public_state(state):
                 'economic_presence': v['economic_presence'], 'military_presence': v['military_presence'],
                 'soft_presence': v['soft_presence'], 'global_presence': v['global_presence'],
                 'alive': v['alive']} for k,v in state['countries'].items()},
-            'conflicts': copy.deepcopy(state.get('conflicts', {})), 'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
+            'conflicts': copy.deepcopy(state.get('conflicts', {})),
+            'pressure_streaks': copy.deepcopy(state.get('pressure_streaks', {})),
+            'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
             'alliances': alliances.view(state)}
 
 def situation_for(state, country, history, config):
@@ -29,7 +31,16 @@ def situation_for(state, country, history, config):
     if own_observation is not None:
         private_state['last_threat_assessment'] = copy.deepcopy(own_observation)
     private_state['world_context'] = state.get('world_context', '')
-    private_state['history'] = copy.deepcopy(history)
+    private_state['history'] = [{
+        'round': row['round'],
+        'unverified_declarations': copy.deepcopy(row.get('unverified_declarations', row.get('declarations', {}))),
+        'confirmed_facts': copy.deepcopy(row.get('confirmed_facts', {
+            'executed_actions': row.get('actions', {}),
+            'presence_transfers': row.get('presence_transfers', []),
+            'automatic_second_strikes': row.get('automatic_second_strikes', []),
+            'outcome': row.get('outcome', {}),
+        })),
+    } for row in history]
     situation = {'round': state['round'], 'country_id': country, 'state': private_state}
     situation['snapshot_hash'] = protocol.snapshot_hash(situation)
     return situation
@@ -112,7 +123,16 @@ def advance(state, decisions, config):
 def public_round(record, decisions, state):
     # Display only actions actually executed, never failed packages or alliance terms.
     effective = record.get('effective_decisions', decisions)
-    return {'round':record['round'], 'declarations': {cid:d['declaration'] for cid,d in effective.items()},
+    declarations = {cid:d['declaration'] for cid,d in effective.items()}
+    confirmed = {
+        'executed_actions': {cid:[{'target_id':a['target_id'],'action_id':a['action_id']} for a in d['actions']] for cid,d in effective.items()},
+        'presence_transfers': copy.deepcopy(record['presence_transfers']),
+        'pressure_costs': copy.deepcopy(record.get('pressure_costs', [])),
+        'automatic_second_strikes': copy.deepcopy(record.get('automatic_second_strikes', [])),
+        'outcome': copy.deepcopy(record['outcome']),
+    }
+    return {'round':record['round'], 'declarations': declarations,
+            'unverified_declarations': copy.deepcopy(declarations), 'confirmed_facts': confirmed,
             'actions':{cid:[{'target_id':a['target_id'],'action_id':a['action_id']} for a in d['actions']] for cid,d in effective.items()},
             'presence_transfers':copy.deepcopy(record['presence_transfers']),
             'automatic_second_strikes':copy.deepcopy(record.get('automatic_second_strikes', [])),

@@ -32,6 +32,9 @@
     "战略核战争": "100"
   },
   "threat_effect": "35",
+  "repeat_pressure_multipliers": ["1", "0.75", "0.5", "0.25"],
+  "diplomatic_pressure_cost_rate": "0.1",
+  "economic_pressure_cost_rate": "0.15",
   "ipg_win_min": "50",
   "ipg_win_gap": "30",
   "presence_weights": {

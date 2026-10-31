@@ -23,8 +23,9 @@ class TestV6(unittest.TestCase):
         s=state()
         d=decision(('A','B'), {'A':[a('B','经济施压')]})
         n,log=r.settle_round(s,d)
-        self.assertEqual(n['countries']['A']['global_presence'],102)
+        self.assertEqual(n['countries']['A']['global_presence'],101.871)
         self.assertEqual(n['countries']['B']['global_presence'],98)
+        self.assertEqual(log['pressure_costs'][0]['charged'],0.3)
         changes={row['dimension']:row['transferred'] for row in log['presence_transfers'] if row['payer']=='B'}
         self.assertEqual(changes['military_presence'],0)
         self.assertEqual(changes['economic_presence'],3.72093)
@@ -47,15 +48,16 @@ class TestV6(unittest.TestCase):
         s['conflicts']['A']['B']=45
         d['A']['actions'][0]['nuclear']=0
         with self.assertRaises(ValueError): r.settle_round(s,d)
-    def test_threat_expires_but_keeps_actual_level(self):
+    def test_historical_conflict_never_repeats_as_current_advantage(self):
         s=state(presence=1000); s['conflicts']={'A':{'B':85},'B':{'A':1}}
         d=decision(('A','B'),{'A':[a('B','战略核威胁')]})
         n,log=r.settle_round(s,d)
         self.assertEqual(n['conflicts']['A']['B'],170)
-        self.assertEqual(log['pairs'][0]['effective_levels']['A'],120)
+        self.assertEqual(log['pairs'][0]['effective_increments']['A'],35)
         d=decision(('A','B'))
         _,log=r.settle_round(n,d)
-        self.assertEqual(log['pairs'][0]['effective_levels']['A'],85)
+        self.assertEqual(log['pairs'][0]['effective_increments']['A'],0)
+        self.assertEqual(log['pairs'][0]['ipg_claim'],0)
     def test_mutual_nuclear_loss_and_mad(self):
         s=state(presence=1000); s['conflicts']={'A':{'B':45},'B':{'A':45}}
         d=decision(('A','B'),{'A':[a('B','有限核武器使用',20,20)], 'B':[a('A','有限核武器使用',20,20)]})
@@ -74,27 +76,38 @@ class TestV6(unittest.TestCase):
         n,log=r.settle_round(s,decision(('A','B')))
         self.assertEqual(log['pairs'][0]['losses']['A']['conventional'],0)
     def test_proportional_distribution(self):
-        s=state(('A','B','C','D'))
-        s['conflicts']={'B':{'A':30},'C':{'A':40},'D':{'A':50}}
-        n,log=r.settle_round(s,decision(('A','B','C','D')))
-        transfers=[x for x in log['presence_transfers'] if x['payer']=='A' and x['dimension']=='economic_presence']
-        self.assertEqual([x['transferred'] for x in transfers],[25,33.333333,41.666667])
-        self.assertEqual(n['countries']['A']["global_presence"],0)
-        self.assertFalse(n['countries']['A']['alive'])
+        shares=r._allocate(r.number(100),{'B':r.number(30),'C':r.number(40),'D':r.number(50)})
+        self.assertEqual([r.out(shares[x]) for x in ('B','C','D')],[25,33.333333,41.666667])
     def test_dead_beneficiary_returns(self):
         s=state(('A','B','C'),10)
-        s['conflicts']={'B':{'A':10},'A':{'C':5}}
-        n,log=r.settle_round(s,decision(('A','B','C')))
+        s['countries']['A'].update({'economic_presence':0,'military_presence':1,'soft_presence':0})
+        d=decision(('A','B','C'),{'A':[a('C','经济施压')], 'B':[a('A','最大规模常规作战',1)]})
+        n,log=r.settle_round(s,d)
         c_to_a=[x for x in log['presence_transfers'] if x['payer']=='C' and x.get('receiver')=='A'][0]
-        self.assertEqual(c_to_a['returned'],5)
+        self.assertGreater(c_to_a['returned'],0)
         self.assertEqual(n['countries']['A']["global_presence"],0)
     def test_id_order_allows_prior_receipt_funding_later(self):
         s=state(('A','B','C'),10)
-        s['conflicts']={'B':{'A':10},'C':{'B':20}}
-        n,log=r.settle_round(s,decision(('A','B','C')))
-        t=[x for x in log['presence_transfers'] if x['payer']=='B' and x.get('receiver')=='C'][0]
+        d=decision(('A','B','C'),{'B':[a('A','最大规模常规作战',1)], 'C':[a('B','最大规模常规作战',1)]})
+        n,log=r.settle_round(s,d)
+        t=[x for x in log['presence_transfers'] if x['payer']=='B' and x.get('receiver')=='C' and x['dimension']=='military_presence'][0]
         self.assertEqual(t['transferred'],20)
-        self.assertEqual(n['countries']['B']["global_presence"],0)
+        self.assertEqual(n['countries']['B']["military_presence"],0)
+    def test_repeated_same_category_pressure_has_diminishing_effect(self):
+        s=state(presence=1000)
+        observed=[]
+        for _ in range(4):
+            d=decision(('A','B'),{'A':[a('B','加强外交施压')]})
+            s,log=r.settle_round(s,d)
+            observed.append(log['pairs'][0]['effective_increments']['A'])
+        self.assertEqual(observed,[1,0.75,0.5,0.25])
+        self.assertEqual(s['pressure_streaks']['A']['B'],{'category':'diplomatic','count':4})
+    def test_changing_pressure_category_resets_streak(self):
+        s=state(presence=1000)
+        s,_=r.settle_round(s,decision(('A','B'),{'A':[a('B','加强外交施压')]}))
+        s,log=r.settle_round(s,decision(('A','B'),{'A':[a('B','经济施压')]}))
+        self.assertEqual(log['pairs'][0]['effective_increments']['A'],2)
+        self.assertEqual(s['pressure_streaks']['A']['B'],{'category':'economic','count':1})
     def test_round_limit_no_winner(self):
         s=state(); s['round']=30
         n,_=r.settle_round(s,decision(('A','B')))

@@ -94,6 +94,19 @@ class V6RuntimeTests(unittest.TestCase):
         self.assertNotIn('conventional',view['state']['countries']['C2'])
         self.assertEqual(view['state']['countries']['C2']['nuclear'],state['countries']['C2']['nuclear'])
 
+    def test_history_separates_unverified_declarations_from_confirmed_facts(self):
+        state=p.validate_scenario(json.loads(Path(v.DEFAULT_SCENARIO).read_text()))
+        state['round']=1
+        decisions={cid:p.make_fallback(v.situation_for(state,cid,[],{})) for cid in state['countries']}
+        decisions['C1']['declaration']='我声称会议已经召开'
+        new,record=v.advance(state,decisions,{})
+        public=v.public_round(record,decisions,new)
+        view=v.situation_for(new,'C2',[public],{})
+        history=view['state']['history'][0]
+        self.assertEqual(history['unverified_declarations']['C1'],'我声称会议已经召开')
+        self.assertNotIn('declarations',history['confirmed_facts'])
+        self.assertIn('executed_actions',history['confirmed_facts'])
+
 if __name__ == '__main__': unittest.main()
 
 class RealAdapterTests(unittest.TestCase):
