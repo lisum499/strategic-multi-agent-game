@@ -13,6 +13,26 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests
 ```
 
+## 桌面界面与 Windows EXE
+
+源码环境可直接启动桌面界面：
+
+```bash
+PYTHONPATH=src python3 -m strategic_game.gui
+```
+
+界面支持增删和编辑任意数量的国家，设置国家存在值、常规与核力量、战略文化、意识形态、国家画像、世界背景、模型 API 和回合数。左侧实时显示模型调用与校验进度，右侧分别展示逐轮完整决策和世界状态变化；API Key 只传给后台进程，不写入场景或运行记录。运行中可停止，并可通过“断点续跑”选择原实验的 `run.json`。
+
+在 Windows 10/11 上安装 Python 3.10 或以上后，双击：
+
+```text
+scripts\build_windows_exe.bat
+```
+
+脚本会安装 PyInstaller，并生成 `dist\StrategicMultiAgentGame.exe`。PyInstaller 不能在 Linux 上直接交叉编译 Windows EXE，因此正式 Windows 文件应在 Windows 环境中执行该脚本构建。
+
+仓库同时提供 GitHub Actions 工作流 `Build Windows EXE`。在 GitHub 的 Actions 页面手动运行后，可从该次任务的 Artifacts 下载 `StrategicMultiAgentGame-windows`，其中包含构建完成的 EXE。
+
 运行结果在 `runs/` 下，包含完整研究记录 `run.json`、公开记录 `public.json` 和网页 `report.html`。完整记录包含私人信息，应限制分享。`mock` 仅验证流程，不能代表模型行为。
 
 ## 真实模型

@@ -1,0 +1,28 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install
+        run: python -m pip install -e ".[desktop]"
+      - name: Test
+        run: python -m unittest discover -s tests -q
+      - name: Package
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name StrategicMultiAgentGame --collect-data strategic_game desktop_app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StrategicMultiAgentGame-windows
+          path: dist/StrategicMultiAgentGame.exe
