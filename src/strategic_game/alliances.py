@@ -50,6 +50,7 @@ def _stores(state):
     state.setdefault('alliances', {})
     state.setdefault('alliance_invitations', {})
     state.setdefault('alliance_loans', [])
+    state.setdefault('pending_loan_requests', {})
     state.setdefault('alliance_private_events', [])
     state.setdefault('alliance_public_events', [])
 
@@ -86,6 +87,10 @@ def _break(state, a, b, reason):
         return False
     agreement['active'] = False
     agreement['ended_round'] = state['round']
+    for request in state.get('pending_loan_requests', {}).values():
+        if request.get('alliance_id') == agreement['id'] and request.get('status') == 'pending':
+            request['status'] = 'invalidated'
+            request['failure_reason'] = reason
     if _public(agreement):
         _emit(state, {'type': 'alliance_ended', 'countries': sorted([a, b]), 'reason': 'alliance_ended'}, public=True)
     _emit(state, {'type': 'alliance_ended_detail', 'countries': sorted([a, b]), 'reason': reason}, (a, b))
@@ -105,6 +110,20 @@ def _eligible(state, a, b, planned_conflicts=frozenset()):
     return True
 
 
+def _break_new_public_incompatibilities(state, revealed, planned_conflicts):
+    """A newly disclosed ally can invalidate another treaty immediately."""
+    for member, disclosed_partner in ((revealed['a'], revealed['b']),
+                                      (revealed['b'], revealed['a'])):
+        for agreement in list(state['alliances'].values()):
+            if (agreement is revealed or not agreement.get('active')
+                    or member not in (agreement['a'], agreement['b'])):
+                continue
+            other = agreement['b'] if agreement['a'] == member else agreement['a']
+            if (_conflict(state, other, disclosed_partner)
+                    or frozenset((other, disclosed_partner)) in planned_conflicts):
+                _break(state, member, other, '公开盟友与该盟约另一方存在冲突')
+
+
 def view(state, viewer=None):
     """Public relationships plus only viewer's private invitations and contracts."""
     alliances = state.get('alliances', {})
@@ -118,6 +137,8 @@ def view(state, viewer=None):
         out['contracts'] = [deepcopy(x) for x in alliances.values() if viewer in (x['a'], x['b'])]
         out['loans'] = [deepcopy(x) for x in state.get('alliance_loans', [])
                         if viewer in (x['from_id'], x['to_id'])]
+        out['loan_requests'] = [deepcopy(x) for x in state.get('pending_loan_requests', {}).values()
+                                if viewer in (x['lender_id'], x['borrower_id'])]
         out['private_events'] = [deepcopy(x) for x in state.get('alliance_private_events', [])
                                  if viewer in x['visible_to']]
     return out
@@ -209,56 +230,8 @@ def resolve(state, decisions, config=None):
             if not _break(state, actor, target, '单方解除'):
                 _failure(state, actor, 'break', target, '联盟不存在')
 
-    # Settlement of loans uses actual balances and partner contract at execution.
-    for actor in ids:
-        for item in decisions[actor].get('borrows', []):
-            lender = item.get('from_id')
-            agreement = _active(state, actor, lender)
-            if not agreement or not _alive(state, lender):
-                _failure(state, actor, 'borrow', lender, '无有效联盟')
-                continue
-            amount = _amounts({k: item.get(k, 0) for k in KINDS})
-            limit = agreement['offer'] if lender == agreement['a'] else agreement['request']
-            outstanding = {k: sum((max(ZERO, _num(x[k]) - _num(x['returned'][k])) for x in state['alliance_loans']
-                                   if x['alliance_id'] == agreement['id'] and x['from_id'] == lender and not x.get('closed')), ZERO) for k in KINDS}
-            if not _positive(amount) or any(_num(amount[k]) + outstanding[k] > _num(limit[k]) for k in KINDS):
-                _failure(state, actor, 'borrow', lender, '借调超过盟约承诺')
-                continue
-            if any(_num(amount[k]) > max(ZERO, _num(countries[lender][k]) - reserved.get(lender, {}).get(k, ZERO)) for k in KINDS):
-                _failure(state, actor, 'borrow', lender, '出借方无力履行承诺')
-                _break(state, actor, lender, '无力履行提供军事力量的承诺')
-                continue
-            for k in KINDS:
-                countries[lender][k] = _json(_num(countries[lender][k]) - _num(amount[k]))
-                countries[actor][k] = _json(_num(countries[actor][k]) + _num(amount[k]))
-            existing = [x for x in state['alliance_loans'] if x['alliance_id'] == agreement['id']
-                        and x['from_id'] == lender and x['to_id'] == actor]
-            promise = agreement['offer_return'] if lender == agreement['a'] else agreement['request_return']
-            # A contract's fixed repayment promise applies once per direction,
-            # even when the lender makes several separate transfers.
-            return_due = {k: (0.0 if existing else promise[k]) for k in KINDS}
-            loan = {'id': f'{round_no}:{lender}:{actor}:{len(state["alliance_loans"])}', 'alliance_id': agreement['id'],
-                    'from_id': lender, 'to_id': actor, **amount, 'return_due': return_due,
-                    'returned': {k: 0.0 for k in KINDS}, 'closed': False}
-            state['alliance_loans'].append(loan)
-            _emit(state, {'type': 'loan', **deepcopy(loan)}, (actor, lender))
-            outstanding_for_actor = {
-                k: sum((max(ZERO, _num(x[k]) - _num(x['returned'][k]))
-                        for x in state['alliance_loans']
-                        if x['alliance_id'] == agreement['id'] and x['from_id'] == lender
-                        and x['to_id'] == actor and not x.get('closed')), ZERO)
-                for k in KINDS
-            }
-            if not _public(agreement) and any(outstanding_for_actor[k] >= 1 for k in KINDS):
-                agreement['public'] = True
-                agreement['revealed_round'] = round_no
-                _emit(state, {'type': 'alliance_revealed',
-                              'countries': sorted([agreement['a'], agreement['b']])}, public=True)
-                _emit(state, {'type': 'alliance_revealed_detail',
-                              'alliance_id': agreement['id'], 'trigger': 'foreign_force_at_least_1'},
-                      (agreement['a'], agreement['b']))
-
-    # Explicit repayment amount, and optional final settlement / non-return.
+    # Returns settle before new lending capacity is checked, so actually
+    # returned force can be lent again in this round.
     for actor in ids:
         for item in decisions[actor].get('returns', []):
             lender = item.get('to_id')
@@ -289,6 +262,83 @@ def resolve(state, decisions, config=None):
             _emit(state, {'type': 'return', 'from_id': actor, 'to_id': lender,
                           'amount': amount, 'closed': bool(item.get('close', False)), 'unpaid': unpaid}, (actor, lender))
 
+    # Due requests are answered one round after creation. Missing responses are
+    # refusals. Processing order is stable so one lender cannot overspend.
+    answered = set()
+    for actor in ids:
+        for response in sorted(decisions[actor].get('loan_responses', []), key=lambda x: x.get('request_id', '')):
+            request_id = response.get('request_id')
+            request = state['pending_loan_requests'].get(request_id)
+            if (not request or request['lender_id'] != actor or request['status'] != 'pending'
+                    or request['response_due_round'] != round_no):
+                _failure(state, actor, 'loan_response', request_id, '借调请求不存在、不是本人请求或不在回应轮次')
+                continue
+            answered.add(request_id)
+            borrower = request['borrower_id']
+            agreement = _active(state, actor, borrower)
+            if not agreement or not _alive(state, borrower):
+                request['status'] = 'invalidated'
+                _failure(state, actor, 'loan_response', request_id, '盟约已失效或借入方已退场')
+                continue
+            if not response.get('accept'):
+                request['status'] = 'rejected'
+                _emit(state, {'type': 'loan_rejected', 'request_id': request_id}, (actor, borrower))
+                _break(state, actor, borrower, '拒绝借调请求')
+                continue
+            amount = {k: request[k] for k in KINDS}
+            lender = actor
+            limit = agreement['offer'] if lender == agreement['a'] else agreement['request']
+            outstanding = {k: sum((max(ZERO, _num(x[k]) - _num(x['returned'][k])) for x in state['alliance_loans']
+                                   if x['alliance_id'] == agreement['id'] and x['from_id'] == lender and not x.get('closed')), ZERO) for k in KINDS}
+            if any(_num(amount[k]) + outstanding[k] > _num(limit[k]) for k in KINDS):
+                request['status'] = 'failed_limit'
+                _failure(state, borrower, 'borrow', lender, '借调超过盟约承诺')
+                continue
+            if any(_num(amount[k]) > max(ZERO, _num(countries[lender][k]) - reserved.get(lender, {}).get(k, ZERO)) for k in KINDS):
+                request['status'] = 'failed_capacity'
+                _failure(state, borrower, 'borrow', lender, '出借方无力履行承诺')
+                _break(state, borrower, lender, '无力履行提供军事力量的承诺')
+                continue
+            for k in KINDS:
+                countries[lender][k] = _json(_num(countries[lender][k]) - _num(amount[k]))
+                countries[borrower][k] = _json(_num(countries[borrower][k]) + _num(amount[k]))
+            existing = [x for x in state['alliance_loans'] if x['alliance_id'] == agreement['id']
+                        and x['from_id'] == lender and x['to_id'] == borrower]
+            promise = agreement['offer_return'] if lender == agreement['a'] else agreement['request_return']
+            # A contract's fixed repayment promise applies once per direction,
+            # even when the lender makes several separate transfers.
+            return_due = {k: (0.0 if existing else promise[k]) for k in KINDS}
+            loan = {'id': f'{round_no}:{lender}:{borrower}:{len(state["alliance_loans"])}', 'alliance_id': agreement['id'],
+                    'request_id': request_id, 'from_id': lender, 'to_id': borrower, **amount, 'return_due': return_due,
+                    'returned': {k: 0.0 for k in KINDS}, 'closed': False}
+            state['alliance_loans'].append(loan)
+            request['status'] = 'fulfilled'
+            request['fulfilled_round'] = round_no
+            _emit(state, {'type': 'loan', **deepcopy(loan)}, (borrower, lender))
+            outstanding_for_actor = {
+                k: sum((max(ZERO, _num(x[k]) - _num(x['returned'][k]))
+                        for x in state['alliance_loans']
+                        if x['alliance_id'] == agreement['id'] and x['from_id'] == lender
+                        and x['to_id'] == borrower and not x.get('closed')), ZERO)
+                for k in KINDS
+            }
+            if not _public(agreement) and any(outstanding_for_actor[k] >= 1 for k in KINDS):
+                agreement['public'] = True
+                agreement['revealed_round'] = round_no
+                _emit(state, {'type': 'alliance_revealed',
+                              'countries': sorted([agreement['a'], agreement['b']])}, public=True)
+                _emit(state, {'type': 'alliance_revealed_detail',
+                              'alliance_id': agreement['id'], 'trigger': 'foreign_force_at_least_1'},
+                      (agreement['a'], agreement['b']))
+                _break_new_public_incompatibilities(state, agreement, planned_conflicts)
+
+    for request_id, request in sorted(state['pending_loan_requests'].items()):
+        if request['status'] == 'pending' and request['response_due_round'] == round_no and request_id not in answered:
+            request['status'] = 'rejected_no_response'
+            _emit(state, {'type': 'loan_rejected', 'request_id': request_id,
+                          'reason': 'no_response'}, (request['lender_id'], request['borrower_id']))
+            _break(state, request['lender_id'], request['borrower_id'], '未回应借调请求')
+
     # Invitations are created after responses and do not become eligible until next round.
     for actor in ids:
         for index, item in enumerate(decisions[actor].get('alliance_invites', [])):
@@ -313,6 +363,32 @@ def resolve(state, decisions, config=None):
                           'offer_return': offer_return, 'request_return': request_return}
             state['alliance_invitations'][invitation_id] = invitation
             _emit(state, {'type': 'alliance_invited', 'invite_id': invitation_id}, (actor, target))
+
+    # New requests never transfer force in their creation round.
+    for actor in ids:
+        for index, item in enumerate(decisions[actor].get('borrows', [])):
+            lender = item.get('from_id')
+            agreement = _active(state, actor, lender)
+            if not agreement or not _alive(state, lender):
+                _failure(state, actor, 'borrow', lender, '无有效联盟')
+                continue
+            amount = _amounts({k: item.get(k, 0) for k in KINDS})
+            limit = agreement['offer'] if lender == agreement['a'] else agreement['request']
+            outstanding = {k: sum((max(ZERO, _num(x[k]) - _num(x['returned'][k])) for x in state['alliance_loans']
+                                   if x['alliance_id'] == agreement['id'] and x['from_id'] == lender and not x.get('closed')), ZERO) for k in KINDS}
+            pending = {k: sum((_num(x[k]) for x in state['pending_loan_requests'].values()
+                               if x['alliance_id'] == agreement['id'] and x['lender_id'] == lender
+                               and x['status'] == 'pending'), ZERO) for k in KINDS}
+            if not _positive(amount) or any(_num(amount[k]) + outstanding[k] + pending[k] > _num(limit[k]) for k in KINDS):
+                _failure(state, actor, 'borrow', lender, '借调超过盟约承诺')
+                continue
+            request_id = f'{round_no}:{lender}:{actor}:{index}'
+            request = {'id': request_id, 'alliance_id': agreement['id'], 'lender_id': lender,
+                       'borrower_id': actor, **amount, 'created_round': round_no,
+                       'response_due_round': round_no + 1, 'status': 'pending'}
+            state['pending_loan_requests'][request_id] = request
+            _emit(state, {'type': 'loan_requested', 'request_id': request_id,
+                          'amount': amount}, (actor, lender))
 
     for item in state['alliance_invitations'].values():
         if item['status'] == 'pending' and item['round'] + 1 <= round_no:
@@ -340,19 +416,28 @@ def executable_decisions(state, decisions):
     from .rules import ACTUAL_NUCLEAR
     effective = deepcopy(decisions)
     failures = []
+    requests = state.get('pending_loan_requests', {})
     for cid, decision in sorted(effective.items()):
-        actions = decision.get('actions', [])
-        allocated = {k: sum((_num(a.get(k, 0)) for a in actions), ZERO) for k in KINDS}
-        insufficient = [k for k in KINDS if allocated[k] > _num(state['countries'][cid].get(k, 0))]
-        if any(a.get('action_id') in ACTUAL_NUCLEAR for a in actions) and _num(state['countries'][cid].get('nuclear', 0)) <= 0:
-            if 'nuclear' not in insufficient:
+        kept = []
+        used = {k: ZERO for k in KINDS}
+        for action in decision.get('actions', []):
+            dependencies = action.get('requires_loan_request_ids', [])
+            bad_dependencies = [rid for rid in dependencies if not requests.get(rid)
+                                or requests[rid].get('borrower_id') != cid
+                                or requests[rid].get('status') != 'fulfilled']
+            after = {k: used[k] + _num(action.get(k, 0)) for k in KINDS}
+            insufficient = [k for k in KINDS if after[k] > _num(state['countries'][cid].get(k, 0))]
+            if action.get('action_id') in ACTUAL_NUCLEAR and _num(action.get('nuclear', 0)) <= 0:
                 insufficient.append('nuclear')
-        if insufficient:
-            failures.append({'country_id': cid, 'reason': '未实际获得行动所需力量',
-                             'insufficient': insufficient,
-                             'submitted_actions': deepcopy(actions),
-                             'effective_actions': []})
-            decision['actions'] = []
+            if bad_dependencies or insufficient:
+                failures.append({'country_id': cid, 'target_id': action.get('target_id'),
+                                 'reason': '借调依赖未履约' if bad_dependencies else '未实际获得行动所需力量',
+                                 'failed_dependencies': bad_dependencies, 'insufficient': sorted(set(insufficient)),
+                                 'submitted_action': deepcopy(action), 'effective_action': None})
+                continue
+            kept.append(action)
+            used = after
+        decision['actions'] = kept
     return effective, failures
 
 
@@ -368,6 +453,7 @@ def validate_decision_fields(decision):
         'alliance_responses': ({'invite_id', 'accept'}, {'invite_id', 'accept', 'counter_offer', 'counter_return'}),
         'alliance_breaks': ({'target_id'}, {'target_id'}),
         'borrows': ({'from_id'}, {'from_id', 'conventional', 'nuclear'}),
+        'loan_responses': ({'request_id', 'accept'}, {'request_id', 'accept'}),
         'returns': ({'to_id'}, {'to_id', 'conventional', 'nuclear', 'close'}),
     }
     for field, (required, allowed) in specs.items():
@@ -377,7 +463,7 @@ def validate_decision_fields(decision):
         for item in entries:
             if not isinstance(item, dict) or not required <= item.keys() or set(item) - allowed:
                 raise ValueError(f'{field} 内容字段不合法')
-            for key in ('target_id', 'invite_id', 'from_id', 'to_id'):
+            for key in ('target_id', 'invite_id', 'request_id', 'from_id', 'to_id'):
                 if key in item and (not isinstance(item[key], str) or not item[key]):
                     raise ValueError(f'{field}.{key} 必须为非空字符串')
             for key in ('accept', 'close'):

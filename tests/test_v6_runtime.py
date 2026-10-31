@@ -18,14 +18,17 @@ class V6RuntimeTests(unittest.TestCase):
             self.assertNotIn('conventional',public)
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.main(['replay',str(out/'run.json')]),0)
-    def test_failed_concurrent_borrow_falls_back_transactionally(self):
+    def test_failed_cross_round_borrow_cancels_only_dependent_action(self):
         state=p.validate_scenario(json.loads(Path(v.DEFAULT_SCENARIO).read_text()))
         state['round']=1
         config=__import__('strategic_game.rules',fromlist=['DEFAULT_CONFIG']).DEFAULT_CONFIG
         decisions={cid:p.make_fallback(v.situation_for(state,cid,[],config)) for cid in state['countries']}
         own=state['countries']['C1']['conventional']
-        decisions['C1']['borrows']=[{'from_id':'C2','conventional':10,'nuclear':0}]
-        decisions['C1']['actions']=[{'target_id':'C2','action_id':'军事示威','conventional':own+1,'nuclear':0}]
+        state['pending_loan_requests']={'req-1':{'id':'req-1','alliance_id':'C1|C2','lender_id':'C2','borrower_id':'C1',
+            'conventional':10,'nuclear':0,'created_round':0,'response_due_round':1,'status':'pending'}}
+        decisions={cid:p.make_fallback(v.situation_for(state,cid,[],config)) for cid in state['countries']}
+        decisions['C1']['actions']=[{'target_id':'C2','action_id':'军事示威','conventional':own+1,'nuclear':0,
+                                     'requires_loan_request_ids':['req-1']}]
         p.validate_decision(decisions['C1'],v.situation_for(state,'C1',[],config))
         new,record=v.advance(state,decisions,config)
         self.assertEqual([x['country_id'] for x in record['settlement_fallbacks']],['C1'])

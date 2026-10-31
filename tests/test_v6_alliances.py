@@ -19,6 +19,13 @@ class AllianceTest(unittest.TestCase):
         s['round']=2
         a.resolve(s, {'B':{'alliance_responses':[{'invite_id':'1:A:B:0','accept':True}]}})
         return s
+    def borrow(self, s, amount, *, accept=True):
+        request_round = s['round']
+        a.resolve(s, {'B':{'borrows':[{'from_id':'A','conventional':amount}]}})
+        request_id = f'{request_round}:A:B:0'
+        s['round'] = request_round + 1
+        a.resolve(s, {'A':{'loan_responses':[{'request_id':request_id,'accept':accept}]}})
+        return request_id
     def test_invite_next_round_and_privacy(self):
         s=self.establish()
         self.assertEqual(a.view(s,'C')['alliances'],[])
@@ -33,13 +40,13 @@ class AllianceTest(unittest.TestCase):
         self.assertEqual(a.view(s)['alliances'],[])
     def test_borrow_and_refuse_repayment(self):
         s=self.establish(); s['round']=3
-        events=a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':10}]}})
+        self.borrow(s,10)
         self.assertEqual(a.view(s)['alliances'],[{'countries':['A','B']}])
-        self.assertEqual(events['public'][0]['type'],'alliance_revealed')
+        self.assertEqual(s['alliance_public_events'][-1]['type'],'alliance_revealed')
         self.assertEqual(s['countries']['A']['conventional'],20)
         self.assertEqual(s['countries']['B']['conventional'],40)
         s['countries']['B']['conventional'] -= 3 # borrower takes losses
-        s['round']=4
+        s['round']=5
         a.resolve(s,{'B':{'returns':[{'to_id':'A','conventional':0,'close':True}]}})
         self.assertEqual(s['countries']['B']['conventional'],37)
         self.assertEqual(s['countries']['A']['conventional'],20)
@@ -50,6 +57,18 @@ class AllianceTest(unittest.TestCase):
         a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':11}]}})
         self.assertEqual(s['countries']['A']['conventional'],30)
         self.assertEqual(s['countries']['B']['conventional'],30)
+    def test_rejection_and_no_response_break_alliance(self):
+        s=self.establish(); s['round']=3
+        request_id=self.borrow(s,5,accept=False)
+        self.assertEqual(s['pending_loan_requests'][request_id]['status'],'rejected')
+        self.assertFalse(s['alliances']['A|B']['active'])
+
+        s=self.establish(); s['round']=3
+        a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':5}]}})
+        s['round']=4
+        a.resolve(s,{'A':{}})
+        self.assertEqual(s['pending_loan_requests']['3:A:B:0']['status'],'rejected_no_response')
+        self.assertFalse(s['alliances']['A|B']['active'])
     def test_allied_conflict_breaks(self):
         s=self.establish(); s['conflicts']['A']['B']=.3
         a.break_conflicting_alliances(s)
@@ -59,12 +78,13 @@ class AllianceTest(unittest.TestCase):
 
     def test_reveal_threshold_is_cumulative_per_borrower(self):
         s=self.establish(); s['round']=3
-        a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':.5}]}})
+        self.borrow(s,.5)
         self.assertEqual(a.view(s)['alliances'],[])
-        events=a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':.5}]}})
+        s['round']=5
+        self.borrow(s,.5)
         self.assertEqual(a.view(s)['alliances'],[{'countries':['A','B']}])
-        self.assertEqual(events['public'][0]['type'],'alliance_revealed')
-        s['round']=4
+        self.assertEqual(s['alliance_public_events'][-1]['type'],'alliance_revealed')
+        s['round']=7
         a.resolve(s,{'B':{'returns':[{'to_id':'A','conventional':1,'close':False}]}})
         self.assertEqual(a.view(s)['alliances'],[{'countries':['A','B']}])
 
@@ -75,14 +95,15 @@ class AllianceTest(unittest.TestCase):
         self.assertIn('3:C:B:0',s['alliance_invitations'])
 
         s=self.establish(); s['round']=3; s['conflicts']['A']['C']=.3
-        a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':1}]},
-                     'C':{'alliance_invites':[offer]}})
+        self.borrow(s,1)
+        s['round']=5
+        a.resolve(s,{'C':{'alliance_invites':[offer]}})
         self.assertNotIn('3:C:B:0',s['alliance_invitations'])
         self.assertEqual(s['alliance_private_events'][-1]['type'],'alliance_request_failed')
     def test_fixed_repayment_and_partial(self):
         s=self.establish(); s['round']=3
-        a.resolve(s,{'B':{'borrows':[{'from_id':'A','conventional':10}]}})
-        s['round']=4
+        self.borrow(s,10)
+        s['round']=5
         a.resolve(s,{'B':{'returns':[{'to_id':'A','conventional':7,'close':True}]}})
         self.assertEqual(s['countries']['A']['conventional'],27)
         self.assertEqual(s['countries']['B']['conventional'],33)

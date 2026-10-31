@@ -52,10 +52,17 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(V6ValidationError): validate_decision(data, self.situation)
         data['actions'][0]['nuclear'] = 100
         with self.assertRaises(V6ValidationError): validate_decision(data, self.situation)
-    def test_borrowed_funds_only_provisional(self):
+    def test_only_due_cross_round_request_is_provisional(self):
         data = make_fallback(self.situation)
         data['borrows'] = [{'from_id':'B','conventional':10,'nuclear':0}]
         data['actions'] = [{'target_id':'B','action_id':'军事示威','conventional':90,'nuclear':0}]
+        with self.assertRaises(V6ValidationError): validate_decision(data, self.situation)
+        request={'id':'req-1','lender_id':'B','borrower_id':'A','conventional':10,'nuclear':0,
+                 'status':'pending','response_due_round':1}
+        self.situation['state']['alliance_info']={'loan_requests':[request]}
+        data = make_fallback(self.situation)
+        data['actions'] = [{'target_id':'B','action_id':'军事示威','conventional':90,'nuclear':0,
+                            'requires_loan_request_ids':['req-1']}]
         validate_decision(data, self.situation)
     def test_prompt_has_rules_and_alliance_contract(self):
         _, user = build_prompts(self.situation)

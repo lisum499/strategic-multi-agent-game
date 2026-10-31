@@ -180,7 +180,7 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
         raise V6ValidationError('决策必须是对象')
     required = {'round','country_id','snapshot_hash','assessment','forecast','declaration',
                 'rationale','threat_assessment','actions','alliance_invites','alliance_responses',
-                'alliance_breaks','borrows','returns'}
+                'alliance_breaks','borrows','loan_responses','returns'}
     if set(data) != required:
         raise V6ValidationError(f'决策字段不匹配：缺少 {sorted(required-set(data))}；多余 {sorted(set(data)-required)}')
     for key in ('round', 'country_id', 'snapshot_hash'):
@@ -200,11 +200,22 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
     country = situation['country_id']
     state = situation['state']
     seen = set()
-    pending_nuclear = sum(_number(b.get('nuclear', 0), 'borrows.nuclear') for b in data['borrows'] if isinstance(b, dict)) if isinstance(data['borrows'], list) else 0
+    private_requests = {x['id']: x for x in state.get('alliance_info', {}).get('loan_requests', [])
+                        if x.get('borrower_id') == country and x.get('status') == 'pending'
+                        and x.get('response_due_round') == situation['round']}
+    referenced_requests = set()
+    pending_nuclear = sum(_number(x.get('nuclear', 0), 'loan_request.nuclear')
+                          for x in private_requests.values())
     conventional = nuclear = 0.0
     for action in actions:
-        if not isinstance(action, dict) or set(action) != {'target_id','action_id','conventional','nuclear'}:
-            raise V6ValidationError('行动必须且只能包含 target_id、action_id、conventional、nuclear')
+        required_action = {'target_id','action_id','conventional','nuclear'}
+        if not isinstance(action, dict) or not required_action <= set(action) or set(action) - (required_action | {'requires_loan_request_ids'}):
+            raise V6ValidationError('行动字段不合法')
+        dependencies = action.get('requires_loan_request_ids', [])
+        if (not isinstance(dependencies, list) or len(dependencies) != len(set(dependencies))
+                or any(not isinstance(x, str) or x not in private_requests for x in dependencies)):
+            raise V6ValidationError('requires_loan_request_ids 必须引用本轮到期的本国借调请求')
+        referenced_requests.update(dependencies)
         target = action['target_id']
         if not isinstance(target, str) or target in seen:
             raise V6ValidationError('每个对手至多指定一条行动')
@@ -216,18 +227,19 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
         nuclear += _number(action['nuclear'], 'nuclear')
         if action['action_id'] in NUCLEAR_USE and action['nuclear'] <= 0:
             raise V6ValidationError('实际核使用须投入大于零的核力量')
-    for k in ('alliance_invites','alliance_responses','alliance_breaks','borrows','returns'):
+    for k in ('alliance_invites','alliance_responses','alliance_breaks','borrows','loan_responses','returns'):
         if not isinstance(data[k], list):
             raise V6ValidationError(f'{k} 必须是数组')
     own = state['countries'][country]
-    # Requested borrow is a provisional ceiling. The alliance/settlement step
-    # MUST revalidate against actually delivered funds before executing actions.
-    borrow_conventional = borrow_nuclear = 0.0
+    # Only requests created in an earlier round and explicitly referenced by an
+    # action are provisional resources. New borrow requests cannot fund actions.
+    borrow_conventional = sum(_number(private_requests[r].get('conventional', 0), 'loan_request.conventional')
+                              for r in referenced_requests)
+    borrow_nuclear = sum(_number(private_requests[r].get('nuclear', 0), 'loan_request.nuclear')
+                         for r in referenced_requests)
     for borrow in data['borrows']:
         if not isinstance(borrow, dict) or 'from_id' not in borrow or set(borrow) - {'from_id','conventional','nuclear'}:
             raise V6ValidationError('borrows 项须包含 from_id、conventional、nuclear')
-        borrow_conventional += _number(borrow.get('conventional', 0), 'borrows.conventional')
-        borrow_nuclear += _number(borrow.get('nuclear', 0), 'borrows.nuclear')
     if conventional > float(own['conventional']) + borrow_conventional + 1e-9 or nuclear > float(own['nuclear']) + borrow_nuclear + 1e-9:
         raise V6ValidationError('同轮总投入超过本国可用力量与请求借兵合计')
     return data
@@ -256,8 +268,8 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '存在转移': '优势按胜方行动分配：外交主要改变软实力存在，经济行动主要改变经济存在，常规军事主要改变军事存在，核行动同时改变经济、军事与软实力存在。支付方按国家ID升序、再按维度结算；每维不足则降至0。借入军力只影响可投入力量，不直接增加军事存在。',
         '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",
         '胜负': f"先退场后胜利。IPG降至0则退场；IPG至少{config['ipg_win_min']}且领先最强对手至少{config['ipg_win_gap']}获胜；仅剩一国在场获胜；第{config['max_rounds']}回合无人胜利、全部退场或双方互相投降则无胜者。",
-        '盟约': '邀请和成立后的联盟默认只对双方可见。受邀国只能在下一轮接受。仅当一方从另一方实际借入且尚未归还的常规力量或核力量中，任一项累计达到1时，联盟状态才强制公开；公开后不会因归还而恢复秘密。合同条款、借兵事实及数值始终对其他国家保密。结盟资格只考虑受邀方的现有公开盟友。借兵及返还不是保证，借入方可以不还，其剩余力量归借入方；实际借调在结算时以可用数额和盟约为准。',
-        '军力': '各目标投入的常规与核力量加总不得超过本国可用力量和实际成功借调的力量；请求借入不保证成功，实际不足时不可执行超额投入。',
+        '盟约': '邀请和成立后的联盟默认只对双方可见。受邀国只能在下一轮接受。借调请求也跨轮处理：本轮borrows只创建请求，下一轮出借方用loan_responses接受或拒绝；未回应视为拒绝并终止盟约。借入方可用requires_loan_request_ids声明条件行动，但看不到出借方同轮回应。仅当一方从另一方实际借入且尚未归还的常规力量或核力量中，任一项累计达到1时，联盟强制公开；公开后不会恢复秘密。合同、请求、回应和数值对其他国家保密。',
+        '军力': '新提出的借调请求不能支持当轮行动。各目标投入合计不得超过本国力量与本轮到期且被行动显式引用的请求之和；结算时只有请求被接受、盟约仍有效且出借方余额充足才转移。依赖失败只取消对应行动。',
         '国家画像': 'tags只允许本国私有stakeholders，用来描述利益攸关方认知，不会自动建立真实联盟或改变数值；不要推断其他国家的stakeholders。请根据可见信息给出当轮私人威胁评估，并注明依据与不确定性。',
         '战略文化状态': '战略文化是长期、静态且公开的国家状态，限定可接受的战略选择但不直接提供数值加成。国际主义倾向强干涉、推广意识形态和雄心勃勃战略；民族主义倾向本国优先、孤立、安全敏感和怀疑外部；进步主义倾向和平推广、援助与多边制度，通常不把军事手段作为常规选择；现实主义把干涉与孤立都视为追求国家利益和权力的手段，强调灵活与谨慎。决策必须结合本国战略文化说明理由。',
         '意识形态侧重性': 'ideology_focus是长期、静态且公开的1–10整数：1表示对维护或推广意识形态淡漠，10表示狂热侧重，中间值表示逐步增强。数值越高，越强调原则一致性、按自身观念改造外部世界，并越难接受跨意识形态妥协；数值越低，越倾向安全、利益及跨制度合作等现实考量。该状态不直接提供数值加成，决策理由必须说明它如何影响本轮判断。',
@@ -269,13 +281,15 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         'assessment': '当前局势和可信度评估', 'forecast': '对其他国家行动和结果的预测',
         'declaration': '公开声明，可以为空或发表真假声明', 'rationale': '私有简短决策依据',
         'threat_assessment': '私有：根据当前可见信息评估当前局势的威胁，注明对象、依据与不确定性；无判断时留空',
-        'actions': [{'target_id': '对手国家ID', 'action_id': '行动名称', **amounts}],
+        'actions': [{'target_id': '对手国家ID', 'action_id': '行动名称', **amounts,
+                     'requires_loan_request_ids': ['仅填写本轮到期的借调请求ID']}],
         'alliance_invites': [{'target_id': '国家ID', 'offer': amounts, 'request': amounts,
                               'offer_return': amounts, 'request_return': amounts}],
         'alliance_responses': [{'invite_id': '邀请ID', 'accept': True,
                                 'counter_offer': amounts, 'counter_return': amounts}],
         'alliance_breaks': [{'target_id': '国家ID'}],
         'borrows': [{'from_id': '盟国ID', **amounts}],
+        'loan_responses': [{'request_id': '本轮到期且由本国出借的请求ID', 'accept': True}],
         'returns': [{'to_id': '盟国ID', **amounts, 'close': False}],
     }
     return system, ('以下是本国轮初可见信息：\n' + _canonical(situation)
@@ -291,5 +305,5 @@ def make_fallback(situation: dict[str, Any]) -> dict[str, Any]:
         'assessment': '系统默认，无有效评估', 'forecast': '系统默认，无有效预测',
         'declaration': '', 'rationale': 'SYSTEM_FALLBACK', 'threat_assessment': '', 'actions': [],
         'alliance_invites': [], 'alliance_responses': [], 'alliance_breaks': [],
-        'borrows': [], 'returns': [],
+        'borrows': [], 'loan_responses': [], 'returns': [],
     }
