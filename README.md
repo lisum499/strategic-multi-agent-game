@@ -37,6 +37,8 @@ scripts\build_windows_exe.bat
 
 脚本会自动查找可用的 Python 3.10+，创建 `.venv`、安装依赖、运行测试，并生成 `dist\StrategicMultiAgentGame.exe`。PyInstaller 不能在 Linux 上直接交叉编译 Windows EXE，因此正式 Windows 文件应在 Windows 环境中执行该脚本构建。
 
+脚本会为 Python 启用 UTF-8 模式，避免中文 Windows 默认 GBK 编码导致 JSON 场景或测试记录读取失败。手动执行 Python 命令时，可先在 PowerShell 设置 `$env:PYTHONUTF8="1"` 和 `$env:PYTHONIOENCODING="utf-8"`。
+
 仓库同时提供 GitHub Actions 工作流 `Build Windows EXE`。在 GitHub 的 Actions 页面手动运行后，可从该次任务的 Artifacts 下载 `StrategicMultiAgentGame-windows`，其中包含构建完成的 EXE。
 
 运行结果在 `runs/` 下，包含完整研究记录 `run.json`、公开记录 `public.json` 和网页 `report.html`。完整记录包含私人信息，应限制分享。`mock` 仅验证流程，不能代表模型行为。
