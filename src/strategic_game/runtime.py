@@ -10,11 +10,11 @@ def public_state(state):
     return {'round': state['round'], 'countries': {k: {'name': v['name'],
                 'strategic_culture': v['strategic_culture'],
                 'ideology_focus': v['ideology_focus'],
+                'region': v['region'],
                 'economic_presence': v['economic_presence'], 'military_presence': v['military_presence'],
                 'soft_presence': v['soft_presence'], 'global_presence': v['global_presence'],
                 'nuclear_status': v['nuclear_status'],
                 'alive': v['alive']} for k,v in state['countries'].items()},
-            'distance_bands': copy.deepcopy(state['distance_bands']),
             'conflicts': copy.deepcopy(state.get('conflicts', {})), 'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
             'alliances': alliances.view(state)}
 

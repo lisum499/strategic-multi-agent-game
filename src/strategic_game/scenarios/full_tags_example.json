@@ -9,6 +9,7 @@
       "name": "阿兰",
       "strategic_culture": "现实主义",
       "ideology_focus": 6,
+      "region": "region_1",
       "economic_presence": 50,
       "military_presence": 50,
       "soft_presence": 50,
@@ -31,6 +32,7 @@
       "name": "博瑞",
       "strategic_culture": "国际主义",
       "ideology_focus": 10,
+      "region": "region_1",
       "economic_presence": 50,
       "military_presence": 50,
       "soft_presence": 50,
@@ -44,6 +46,7 @@
       "name": "希兰",
       "strategic_culture": "进步主义",
       "ideology_focus": 3,
+      "region": "region_2",
       "economic_presence": 50,
       "military_presence": 50,
       "soft_presence": 50,
@@ -54,11 +57,6 @@
       "tags": {
       }
     }
-  },
-  "distance_bands": {
-    "C1": {"C2": "adjacent", "C3": "regional"},
-    "C2": {"C1": "adjacent", "C3": "adjacent"},
-    "C3": {"C1": "regional", "C2": "adjacent"}
   },
   "conflicts": {},
   "threat_history": {},

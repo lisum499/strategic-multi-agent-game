@@ -44,6 +44,12 @@ class CapabilityRulesTest(unittest.TestCase):
         self.assertIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C2')})
         self.assertNotIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C3')})
 
+        scenario = self.scenario()
+        scenario['countries']['C1'].update({'nuclear': 21})
+        scenario['conflicts'] = {'C1': {'C3': 45}}
+        state = protocol.validate_scenario(scenario)
+        self.assertIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C3')})
+
     def test_second_strike_is_automatic_and_audited(self):
         scenario = self.scenario()
         scenario['countries']['C1'].update({'conventional': 90, 'nuclear': 60})
@@ -77,9 +83,17 @@ class CapabilityRulesTest(unittest.TestCase):
         self.assertEqual(record['automatic_second_strikes'], [])
         self.assertIn('C2', new_state['nuclear_used'])
 
-    def test_distance_matrix_must_be_complete_and_symmetric(self):
+    def test_region_is_required_and_distance_matrix_is_rejected(self):
         scenario = self.scenario()
-        del scenario['distance_bands']['C1']['C2']
+        del scenario['countries']['C1']['region']
+        with self.assertRaises(protocol.V6ValidationError):
+            protocol.validate_scenario(scenario)
+        scenario = self.scenario()
+        scenario['countries']['C1']['region'] = 'region_5'
+        with self.assertRaises(protocol.V6ValidationError):
+            protocol.validate_scenario(scenario)
+        scenario = self.scenario()
+        scenario['distance_bands'] = {}
         with self.assertRaises(protocol.V6ValidationError):
             protocol.validate_scenario(scenario)
 

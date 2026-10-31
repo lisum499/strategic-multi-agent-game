@@ -7,11 +7,10 @@ from strategic_game.protocol import (V6ValidationError, build_prompts, legal_act
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
         self.raw_state = {'rules_version': 'v6.0', 'round': 1,
-            'countries': {'A': {'name': 'A', 'strategic_culture': '现实主义', 'ideology_focus': 2, 'economic_presence': 50, 'military_presence': 50,
+            'countries': {'A': {'name': 'A', 'strategic_culture': '现实主义', 'ideology_focus': 2, 'region': 'region_1', 'economic_presence': 50, 'military_presence': 50,
                                 'soft_presence': 50, 'conventional': 80, 'nuclear': 20},
-                          'B': {'name': 'B', 'strategic_culture': '民族主义', 'ideology_focus': 4, 'economic_presence': 50, 'military_presence': 50,
+                          'B': {'name': 'B', 'strategic_culture': '民族主义', 'ideology_focus': 4, 'region': 'region_1', 'economic_presence': 50, 'military_presence': 50,
                                 'soft_presence': 50, 'conventional': 60, 'nuclear': 0}},
-            'distance_bands': {'A': {'B': 'adjacent'}, 'B': {'A': 'adjacent'}},
             'conflicts': {'A': {'B': 45}}, 'nuclear_used': []}
         self.state = validate_scenario(self.raw_state)
         self.state['round'] = 1

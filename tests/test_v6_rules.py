@@ -6,11 +6,10 @@ from strategic_game import rules as r
 def country(presence=100, conventional=20, nuclear=20):
     return {'name':'x','economic_presence':presence,'military_presence':presence,
             'soft_presence':presence,'conventional':conventional,'nuclear':nuclear,'alive':True,
-            'nuclear_status':'有'}
+            'nuclear_status':'有','region':'region_1'}
 
 def state(ids=('A','B'), presence=100):
     return {'round':1,'countries':{c:country(presence) for c in ids},
-            'distance_bands':{c:{d:'adjacent' for d in ids if d!=c} for c in ids},
             'conflicts':{}, 'threat_history':{},'nuclear_used':[]}
 
 def decision(ids, actions=None):

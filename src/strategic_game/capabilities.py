@@ -1,12 +1,8 @@
 """Hard military-capability rules derived from the 1.4 design."""
 from __future__ import annotations
 
-from itertools import combinations
-
 NUCLEAR_STATUSES = ('无', '有，但发动打击能力有限', '有', '二次核打击')
-DISTANCE_BANDS = ('adjacent', 'regional', 'distant')
-DISTANCE_RANK = {name: rank for rank, name in enumerate(DISTANCE_BANDS)}
-DELIVERY_RANK = {'无': -1, '有，但发动打击能力有限': 0, '有': 1, '二次核打击': 2}
+REGIONS = ('region_1', 'region_2', 'region_3', 'region_4')
 
 
 def nuclear_status(country: dict) -> str | None:
@@ -28,25 +24,20 @@ def derive_nuclear_status(country_id: str, country: dict) -> str:
     return '二次核打击'
 
 
-def validate_distances(state: dict) -> None:
-    countries = state['countries']
-    matrix = state.get('distance_bands')
-    if not isinstance(matrix, dict) or set(matrix) != set(countries):
-        raise ValueError('distance_bands 必须包含全部国家')
-    for source, target in combinations(sorted(countries), 2):
-        a = matrix.get(source, {}).get(target)
-        b = matrix.get(target, {}).get(source)
-        if a not in DISTANCE_BANDS or b != a:
-            raise ValueError(f'distance_bands.{source}.{target} 必须完整、合法且双向一致')
-    for source, values in matrix.items():
-        if not isinstance(values, dict) or set(values) != set(countries) - {source}:
-            raise ValueError(f'distance_bands.{source} 必须恰好包含全部其他国家')
+def validate_regions(state: dict) -> None:
+    if 'distance_bands' in state:
+        raise ValueError('distance_bands 已删除；请为每个国家设置 region')
+    for country_id, country in state['countries'].items():
+        if country.get('region') not in REGIONS:
+            raise ValueError(f'{country_id}.region 必须是 {", ".join(REGIONS)} 之一')
 
 
 def can_deliver(state: dict, source: str, target: str) -> bool:
     status = nuclear_status(state['countries'][source])
-    distance = state['distance_bands'][source][target]
-    return status in DELIVERY_RANK and DELIVERY_RANK[status] >= DISTANCE_RANK[distance]
+    same_region = state['countries'][source]['region'] == state['countries'][target]['region']
+    if status == '有，但发动打击能力有限':
+        return same_region
+    return status in {'有', '二次核打击'}
 
 
 def has_second_strike(country: dict) -> bool:
