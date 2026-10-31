@@ -30,6 +30,28 @@ OpenAI 兼容服务：
 
 接口调用可能产生费用。先用短局检查模型响应和失败记录。`--retries` 控制重试，`--no-prompts` 不在日志保存提示词，`--out` 可指定尚不存在的结果目录。
 
+八国场景和断点续跑：
+
+```bash
+export OPENAI_API_KEY='你的密钥'
+.venv/bin/strategic-game run --provider openai --base-url https://接口地址/v1 --model 模型名 \
+  --scenario src/strategic_game/scenarios/eight_nations_dawn_strait.json --out runs/eight-nations
+.venv/bin/strategic-game run --resume runs/eight-nations
+```
+
+也可以使用仓库脚本（默认 30 轮、`deepseek-flash`）：
+
+```bash
+export DEEPSEEK_API_KEY='你的密钥'
+./scripts/run_eight_nations_deepseek.sh
+./scripts/run_eight_nations_deepseek.sh 8 runs/eight-nations-test
+./scripts/run_eight_nations_deepseek.sh --resume runs/eight-nations-test
+```
+
+可通过 `MODEL`、`MAX_TOKENS`、`TIMEOUT`、`RETRIES` 或 `PYTHON_BIN` 环境变量覆盖脚本默认值。
+
+`run.json` 在每次请求开始、请求结束和整轮结算后原子更新，保存全部模型尝试、原始响应、校验结果、国家最终决策、统一结算、字段级 `state_changes` 和完整状态。中断发生在半轮时，续跑会保留已有调用记录并重新收集该轮全部在场国家的密封决策；已经完整结算的回合不会重复执行。API 密钥只从命令参数或环境变量读取，不写入记录。
+
 ## v6 场景、参数和回放
 
 默认场景位于 `src/strategic_game/scenarios/three_states.json`，可复制后用 `--scenario 路径` 指定新场景。国家须显式填写 `economic_presence`、`military_presence`、`soft_presence`、常规力量、核力量和私人画像。`global_presence` 由程序按 `0.43E + 0.21M + 0.36S` 计算，场景不得直接填写；旧 `territory` 字段会被拒绝。

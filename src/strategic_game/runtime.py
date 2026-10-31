@@ -115,6 +115,29 @@ def public_round(record, decisions, state):
             'settlement_fallbacks': [x['country_id'] for x in record.get('settlement_fallbacks', [])]}
 
 
+def state_changes(before, after):
+    """Return deterministic leaf-level changes for auditing a round."""
+    changes = []
+    missing = object()
+
+    def walk(old, new, path):
+        if isinstance(old, dict) and isinstance(new, dict):
+            for key in sorted(set(old) | set(new)):
+                walk(old.get(key, missing), new.get(key, missing), path + [str(key)])
+            return
+        if old == new:
+            return
+        item = {'path': '/'.join(path)}
+        if old is not missing:
+            item['before'] = copy.deepcopy(old)
+        if new is not missing:
+            item['after'] = copy.deepcopy(new)
+        changes.append(item)
+
+    walk(before, after, [])
+    return changes
+
+
 def replay(data):
     state = copy.deepcopy(data['initial_state'])
     history = []

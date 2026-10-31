@@ -46,27 +46,69 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
     from . import runtime as runtime, protocol as protocol, rules as rules
     if args.retries < 0:
         raise ValueError("retries 必须 ≥0")
-    scenario_path = args.scenario or runtime.DEFAULT_SCENARIO
-    scenario = protocol.validate_scenario(json.loads(Path(scenario_path).read_text(encoding="utf-8")))
-    if args.rounds is not None:
-        if not 1 <= args.rounds <= 30: raise ValueError("v6 rounds 必须在 1 到 30 之间")
-        scenario["max_rounds"] = args.rounds
-    name = "mock" if args.mock else (args.provider or ("openai" if args.base_url else "mock"))
+    resumed = args.resume is not None
+    if resumed:
+        if args.scenario or args.out or args.rounds is not None:
+            raise ValueError("--resume 不能与 --scenario、--out 或 --rounds 同时使用")
+        resume_path = Path(args.resume)
+        if resume_path.is_dir():
+            resume_path = resume_path / "run.json"
+        data = json.loads(resume_path.read_text(encoding="utf-8"))
+        if data.get("rules_version") != "v6.0":
+            raise ValueError("只能续跑 v6.0 记录")
+        if data.get("run_status") in ("completed", "completed_with_errors"):
+            raise ValueError("该实验已经完成，不能续跑")
+        if data.get("source_fingerprint") != runtime.fingerprint():
+            raise ValueError("规则代码与原运行不一致，不能续跑")
+        config = data.get("rule_config")
+        if data.get("config_fingerprint") != runtime.config_fingerprint(config):
+            raise ValueError("运行参数快照已改变，不能续跑")
+        run_dir = resume_path.parent
+        state = copy.deepcopy(data["final_state"])
+        history = [copy.deepcopy(row["public"]) for row in data.get("rounds", [])]
+        stored_settings = data.get("model_settings", {})
+        name = "mock" if args.mock else (args.provider or stored_settings.get("kind", "mock"))
+    else:
+        scenario_path = args.scenario or runtime.DEFAULT_SCENARIO
+        scenario = protocol.validate_scenario(json.loads(Path(scenario_path).read_text(encoding="utf-8")))
+        if args.rounds is not None:
+            if not 1 <= args.rounds <= 30: raise ValueError("v6 rounds 必须在 1 到 30 之间")
+            scenario["max_rounds"] = args.rounds
+        state = copy.deepcopy(scenario); state["round"] = 1
+        config = rules._config(scenario.get("rule_config")); config["max_rounds"] = scenario["max_rounds"]
+        history = []
+        stored_settings = {}
+        name = "mock" if args.mock else (args.provider or ("openai" if args.base_url else "mock"))
     if args.mock and args.provider not in (None, "mock"): raise ValueError("--mock 不能与真实模型同时使用")
-    supplied = {k:v for k,v in {"model":args.model,"temperature":args.temperature,"max_tokens":args.max_tokens,"timeout":args.timeout,"base_url":args.base_url,"api_key":args.api_key}.items() if v is not None}
-    if name == "mock" and supplied: raise ValueError("mock 不接受模型参数")
+    explicit_model_args = {k:v for k,v in {
+        "model": args.model, "temperature": args.temperature, "max_tokens": args.max_tokens,
+        "timeout": args.timeout, "base_url": args.base_url, "api_key": args.api_key,
+    }.items() if v is not None}
+    supplied = {k:v for k,v in {
+        "model": args.model if args.model is not None else stored_settings.get("model"),
+        "temperature": args.temperature if args.temperature is not None else stored_settings.get("temperature"),
+        "max_tokens": args.max_tokens if args.max_tokens is not None else stored_settings.get("max_tokens"),
+        "timeout": args.timeout if args.timeout is not None else stored_settings.get("timeout"),
+        "base_url": args.base_url if args.base_url is not None else stored_settings.get("base_url"),
+        "api_key": args.api_key,
+    }.items() if v is not None}
+    if name == "mock":
+        if explicit_model_args: raise ValueError("mock 不接受模型参数")
+        supplied = {}
     if name == "deepseek" and args.base_url: raise ValueError("自定义 base-url 请使用 openai")
     provider = get_provider(name, **supplied)
-    state = copy.deepcopy(scenario); state["round"] = 1
-    config = rules._config(scenario.get("rule_config")); config["max_rounds"] = scenario["max_rounds"]
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    run_dir = Path(args.out) if args.out else RUNS_DIR / f"{stamp}-v6-{name}"
-    run_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
-    data = {"rules_version":"v6.0","decision_protocol":"v6_sealed","source_fingerprint":runtime.fingerprint(),"config_fingerprint":runtime.config_fingerprint(config),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
+    if resumed:
+        data["run_status"] = "running"
+        data.pop("error_type", None); data.pop("error_message", None)
+        data.setdefault("resume_events", []).append({"resumed_at": datetime.now().isoformat(timespec="seconds"), "from_round": state["round"]})
+    else:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        run_dir = Path(args.out) if args.out else RUNS_DIR / f"{stamp}-v6-{name}"
+        run_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+        data = {"rules_version":"v6.0","decision_protocol":"v6_sealed","source_fingerprint":runtime.fingerprint(),"config_fingerprint":runtime.config_fingerprint(config),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"resume_events":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
     def save():
         _atomic_write(run_dir / "run.json", json.dumps(data, ensure_ascii=False, indent=2))
-    save(); print(f"实验目录：{run_dir}", flush=True)
-    history = []
+    save(); print(f"{'续跑' if resumed else '实验'}目录：{run_dir}", flush=True)
     try:
         while not state.get("outcome", {}).get("finished"):
             decisions, calls, fallbacks = runtime.decisions_for(state, provider, history, config, args.retries, args.no_prompts, calls_sink=data["records"], on_call=save)
@@ -74,7 +116,9 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
             next_state, settlement = runtime.advance(state, decisions, config)
             data["fallback_count"] += len(settlement.get("settlement_fallbacks", []))
             public = runtime.public_round(settlement, decisions, next_state)
-            data["rounds"].append({"round":settlement["round"],"decisions":decisions,"settlement":settlement,"state":copy.deepcopy(next_state),"public":public})
+            data["rounds"].append({"round":settlement["round"],"decisions":decisions,"settlement":settlement,
+                                   "state_changes":runtime.state_changes(state, next_state),
+                                   "state":copy.deepcopy(next_state),"public":public})
             state = next_state; history.append(public)
             data["final_state"] = copy.deepcopy(state); data["result"] = copy.deepcopy(state.get("outcome", {})); save()
         data["run_status"] = "completed_with_errors" if data["fallback_count"] else "completed"
@@ -136,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--provider", default=None, choices=("mock", "deepseek", "openai"))
     run.add_argument("--mock", action="store_true", help="兼容旧入口，等价于 --provider mock")
     run.add_argument("--scenario", default=None)
+    run.add_argument("--resume", default=None, help="从已有实验目录或 run.json 的最后完整回合续跑")
     run.add_argument("--rounds", type=int, default=None, help="覆盖场景回合上限")
     run.add_argument("--model", default=None, help="真实模型 ID")
     run.add_argument("--base-url", default=None, help="OpenAI 兼容服务地址（含 /v1）")

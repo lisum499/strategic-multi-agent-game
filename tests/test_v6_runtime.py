@@ -1,5 +1,6 @@
 import contextlib, io, json, tempfile, unittest
 from pathlib import Path
+from unittest.mock import patch
 from strategic_game import cli, runtime as v, protocol as p
 
 class V6RuntimeTests(unittest.TestCase):
@@ -11,6 +12,7 @@ class V6RuntimeTests(unittest.TestCase):
             data=json.loads((out/'run.json').read_text())
             self.assertEqual(data['rules_version'],'v6.0')
             self.assertEqual(len(data['rounds']),3)
+            self.assertTrue(data['rounds'][0]['state_changes'])
             self.assertTrue(v.replay(data)[0])
             public=(out/'public.json').read_text()
             self.assertNotIn('rationale',public)
@@ -18,6 +20,22 @@ class V6RuntimeTests(unittest.TestCase):
             self.assertNotIn('conventional',public)
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.main(['replay',str(out/'run.json')]),0)
+
+    def test_interrupted_run_can_resume_from_last_complete_round(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)/'run'
+            with patch('strategic_game.runtime.decisions_for', side_effect=KeyboardInterrupt), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.main(['run','--provider','mock','--rounds','2','--out',str(out)]),130)
+            interrupted=json.loads((out/'run.json').read_text())
+            self.assertEqual(interrupted['run_status'],'interrupted')
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(['run','--resume',str(out)]),0)
+            resumed=json.loads((out/'run.json').read_text())
+            self.assertEqual(resumed['run_status'],'completed')
+            self.assertEqual(len(resumed['rounds']),2)
+            self.assertEqual(len(resumed['resume_events']),1)
+            self.assertTrue(v.replay(resumed)[0])
     def test_failed_cross_round_borrow_cancels_only_dependent_action(self):
         state=p.validate_scenario(json.loads(Path(v.DEFAULT_SCENARIO).read_text()))
         state['round']=1
