@@ -1,7 +1,7 @@
 """Hard military-capability rules derived from the 1.4 design."""
 from __future__ import annotations
 
-NUCLEAR_STATUSES = ('无', '有，但发动打击能力有限', '有', '二次核打击')
+NUCLEAR_STATUSES = ('无', '有', '二次核打击')
 REGIONS = ('region_1', 'region_2', 'region_3', 'region_4')
 
 
@@ -15,13 +15,22 @@ def derive_nuclear_status(country_id: str, country: dict) -> str:
     nuclear = float(country['nuclear'])
     if conventional < 40 and nuclear > 0:
         raise ValueError(f'{country_id} 常规力量低于40，只能发展常规力量')
-    if nuclear == 0:
-        return '无'
     if nuclear <= 20:
-        return '有，但发动打击能力有限'
-    if nuclear < 60:
+        return '无'
+    if nuclear <= 60:
         return '有'
     return '二次核打击'
+
+
+def can_choose_nuclear_action(country: dict, action_level) -> bool:
+    """Apply the public nuclear-capability decision bands."""
+    level = float(action_level)
+    status = nuclear_status(country)
+    if status == '有':
+        return 12.5 <= level <= 45.0
+    if status == '二次核打击':
+        return level >= 45.0
+    return False
 
 
 def validate_regions(state: dict) -> None:
@@ -35,9 +44,9 @@ def validate_regions(state: dict) -> None:
 def can_deliver(state: dict, source: str, target: str) -> bool:
     status = nuclear_status(state['countries'][source])
     same_region = state['countries'][source]['region'] == state['countries'][target]['region']
-    if status == '有，但发动打击能力有限':
+    if status == '有':
         return same_region
-    return status in {'有', '二次核打击'}
+    return status == '二次核打击'
 
 
 def has_second_strike(country: dict) -> bool:

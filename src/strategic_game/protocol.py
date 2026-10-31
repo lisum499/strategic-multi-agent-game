@@ -15,7 +15,7 @@ from typing import Any
 from .rules import DEFAULT_CONFIG, ACTUAL_NUCLEAR, PRESENCE_FIELDS, global_presence, _config
 from .alliances import validate_decision_fields
 from .knowledge import load_dictionary, describe_tags
-from .capabilities import derive_nuclear_status, validate_regions, can_deliver
+from .capabilities import derive_nuclear_status, validate_regions, can_deliver, can_choose_nuclear_action
 
 NUCLEAR_USE = ACTUAL_NUCLEAR
 NUCLEAR_ACTIONS = frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁', *ACTUAL_NUCLEAR, '战略核威胁', '最后核警告'})
@@ -148,6 +148,8 @@ def legal_actions(state: dict[str, Any], country_id: str, target_id: str, *, pen
             continue
         if name in NUCLEAR_ACTIONS and level < delta:
             continue
+        if name in NUCLEAR_ACTIONS and not can_choose_nuclear_action(countries[country_id], delta):
+            continue
         if name in NUCLEAR_USE:
             if float(countries[country_id]['nuclear']) + pending_nuclear <= 0:
                 continue
@@ -263,7 +265,7 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '回合': '评估、预测、公开声明、私有理由、对各对手的行动；全部国家密封提交后统一揭示并结算。',
         '冲突': '各国对每个目标独立累计冲突值，行动数值为增减量，下限0上不封顶；值为0不得降级。各场战斗仅双方直接参加，但一国可同时对多个对手行动。',
         '核资格': '行动门槛是本轮开始时行动方对该目标的有向累计冲突值。例如A对B选择门槛45的有限核武器使用，必须先有conflicts[A][B]>=45；conflicts[B][A]不能代替，本轮行动新增值也不能用于满足本轮自身门槛。核信号、核预备、核示威、核威胁及核使用均须先达到各自在actions中的数值。有限核武器使用、升级性核行动、扩大核打击行动和战略核战争为实际核使用，还须拥有并投入核力量。战略核威胁和最后核警告仅是威胁；达到门槛只产生资格，不自动使用。',
-        '军事能力与核投送': 'region是国家固定、公开的区域状态，只能是region_1至region_4。nuclear_status由开局常规与核力量自动生成，模型不能填写：核力量0为无，1–20为有限，21–59为有，60–100为二次核打击；常规力量低于40时核力量只能为0。有限核能力只能实际打击同区域目标；普通拥核和二次核打击能力可攻击同区域或不同区域目标。二次核打击状态且仍有核力量的国家遭受升级性核行动、扩大核打击行动或战略核战争时，由主持人使用受保护核力量自动报复；有限核武器使用不触发自动二次打击。核能力状态与区域开局后固定，不因战损、借兵或战争改写。',
+        '军事能力与核投送': 'region是国家固定、公开的区域状态，只能是region_1至region_4。nuclear_status由开局核力量自动生成，模型不能填写：0–20为无，不能选择任何核行动；21–60为有，只能选择门槛值12.5–45.0的核行动，且实际核打击只能针对同区域目标；61–100为二次核打击，只能选择门槛值45.0及以上的核行动，可打击同区域或不同区域目标，并具备自动二次打击。常规力量低于40时核力量只能为0。二次核打击状态且仍有核力量的国家遭受升级性核行动、扩大核打击行动或战略核战争时，由主持人使用受保护核力量自动报复；有限核武器使用不触发自动二次打击。核能力状态与区域开局后固定，不因战损、借兵或战争改写。',
         '全球存在指数': f"IPG=0.43×经济存在+0.21×军事存在+0.36×软实力存在，由程序实时计算，不能直接修改。行动后按双边累计值差计算IPG优势；核使用对常规时系数取1+min(差值/{config['nuclear_ipg_scale']},{config['nuclear_ipg_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮增量按{config['threat_effect']}计入优势，本轮以后不重复计入。",
         '存在转移': '优势按胜方行动分配：外交主要改变软实力存在，经济行动主要改变经济存在，常规军事主要改变军事存在，核行动同时改变经济、军事与软实力存在。支付方按国家ID升序、再按维度结算；每维不足则降至0。借入军力只影响可投入力量，不直接增加军事存在。',
         '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",

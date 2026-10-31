@@ -11,7 +11,7 @@ from itertools import combinations
 from typing import Any
 from pathlib import Path
 import json
-from .capabilities import can_deliver, has_second_strike
+from .capabilities import can_deliver, has_second_strike, can_choose_nuclear_action
 
 RULES_VERSION = '6.0'
 Q = Decimal('0.000001')
@@ -145,6 +145,8 @@ def validate_decisions(state: dict, decisions: dict, config: dict | None = None)
                 raise ValueError('cannot de-escalate a nonexistent conflict')
             if name in NUCLEAR_ACTIONS and old < level:
                 raise ValueError('nuclear action requires its threshold before the action')
+            if name in NUCLEAR_ACTIONS and not can_choose_nuclear_action(countries[cid], level):
+                raise ValueError('nuclear capability status does not allow this action level')
             for k in allocated:
                 v = number(action.get(k, 0))
                 if v < 0:
