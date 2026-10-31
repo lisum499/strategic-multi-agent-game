@@ -1,4 +1,4 @@
-"""Sealed v5 runtime, private projections, checkpoints and reproducible replay."""
+"""Sealed v6 runtime, private projections, checkpoints and reproducible replay."""
 from __future__ import annotations
 import copy, hashlib, html, json
 from pathlib import Path
@@ -8,7 +8,14 @@ DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'three_states.json'
 
 def public_state(state):
     return {**({'world_tags': copy.deepcopy(state['world_tags']), 'world_tag_knowledge': copy.deepcopy(state['world_tag_knowledge'])} if 'world_tags' in state else {}),
-            'round': state['round'], 'countries': {k: {'name': v['name'], 'territory': v['territory'], 'alive': v['alive']} for k,v in state['countries'].items()},
+            'round': state['round'], 'countries': {k: {'name': v['name'],
+                'strategic_culture': v['strategic_culture'],
+                'ideology_focus': v['ideology_focus'],
+                'economic_presence': v['economic_presence'], 'military_presence': v['military_presence'],
+                'soft_presence': v['soft_presence'], 'global_presence': v['global_presence'],
+                'nuclear_status': v['nuclear_status'],
+                'alive': v['alive']} for k,v in state['countries'].items()},
+            'distance_bands': copy.deepcopy(state['distance_bands']),
             'conflicts': copy.deepcopy(state.get('conflicts', {})), 'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
             'alliances': alliances.view(state)}
 
@@ -57,7 +64,7 @@ def decisions_for(state, provider, history, config, retries=3, no_prompts=False,
                         data['actions'] = [{'target_id': targets[(state['round'] + len(cid)) % len(targets)], 'action_id': '初步外交施压', 'conventional': 0, 'nuclear': 0}]
                     response = json.dumps(data, ensure_ascii=False)
                 else:
-                    response = provider.decide('v5_sealed', system, actual_user, situation)
+                    response = provider.decide('v6_sealed', system, actual_user, situation)
                 call['response'] = response
                 decision = protocol.validate_decision(response, situation)
                 alliances.validate_decision_fields(decision)
@@ -66,7 +73,7 @@ def decisions_for(state, provider, history, config, retries=3, no_prompts=False,
                 decisions[cid] = decision
                 break
             except Exception as exc:
-                last = str(exc)[:500] if isinstance(exc, (ValueError, protocol.V5ValidationError)) else type(exc).__name__
+                last = str(exc)[:500] if isinstance(exc, (ValueError, protocol.V6ValidationError)) else type(exc).__name__
                 call.update({'status': 'failed', 'error': last, 'provider_info': copy.deepcopy(provider.last_call_info)})
                 if on_call is not None: on_call()
         else:
@@ -104,7 +111,8 @@ def public_round(record, decisions, state):
     effective = record.get('effective_decisions', decisions)
     return {'round':record['round'], 'declarations': {cid:d['declaration'] for cid,d in effective.items()},
             'actions':{cid:[{'target_id':a['target_id'],'action_id':a['action_id']} for a in d['actions']] for cid,d in effective.items()},
-            'territory_transfers':copy.deepcopy(record['territory_transfers']),
+            'presence_transfers':copy.deepcopy(record['presence_transfers']),
+            'automatic_second_strikes':copy.deepcopy(record.get('automatic_second_strikes', [])),
             'alliances':alliances.view(state), 'state':public_state(state), 'outcome':copy.deepcopy(record['outcome']),
             'settlement_fallbacks': [x['country_id'] for x in record.get('settlement_fallbacks', [])]}
 
@@ -127,11 +135,11 @@ def replay(data):
     return state == data['final_state'], '一致' if state == data['final_state'] else '最终状态不一致'
 
 def reports(data):
-    lines = ['# v5.0 模拟报告', '', f"状态：{data['run_status']}；胜者：{data['result'].get('winner_id') or '无'}；原因：{data['result'].get('reason') or '未完成'}", '']
+    lines = ['# v6.0 模拟报告', '', f"状态：{data['run_status']}；胜者：{data['result'].get('winner_id') or '无'}；原因：{data['result'].get('reason') or '未完成'}", '']
     for row in data['rounds']:
         lines += [f"## 第 {row['round']} 轮", '', '```json', json.dumps(row['public'], ensure_ascii=False, indent=2), '```', '']
     md = '\n'.join(lines)
-    return md, '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>v5.0 模拟报告</title><body><pre style="white-space:pre-wrap">'+html.escape(md)+'</pre></body></html>'
+    return md, '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>v6.0 模拟报告</title><body><pre style="white-space:pre-wrap">'+html.escape(md)+'</pre></body></html>'
 
 def fingerprint():
     h = hashlib.sha256()

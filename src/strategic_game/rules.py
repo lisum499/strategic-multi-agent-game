@@ -1,4 +1,4 @@
-"""Deterministic v5.0 settlement. Inputs/outputs are JSON-compatible dicts.
+"""Deterministic v6.0 settlement. Inputs/outputs are JSON-compatible dicts.
 
 Actions are sealed before invoking settle_round; this module performs no I/O
 or model calls. It returns a fresh state and a fully auditable round record.
@@ -6,13 +6,14 @@ or model calls. It returns a fresh state and a fully auditable round record.
 from __future__ import annotations
 
 from copy import deepcopy
-from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+from decimal import Decimal, ROUND_HALF_UP
 from itertools import combinations
 from typing import Any
 from pathlib import Path
 import json
+from .capabilities import can_deliver, has_second_strike
 
-RULES_VERSION = '5.0'
+RULES_VERSION = '6.0'
 Q = Decimal('0.000001')
 ZERO = Decimal(0)
 DEFAULT_CONFIG = json.loads((Path(__file__).parent / 'scenarios' / 'rules.json').read_text(encoding='utf-8'))
@@ -21,6 +22,9 @@ ACTUAL_NUCLEAR = frozenset({'有限核武器使用', '升级性核行动', '扩�
 THREATS = frozenset({'战略核威胁', '最后核警告'})
 NUCLEAR_ACTIONS = ACTUAL_NUCLEAR | THREATS | frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁'})
 CONVENTIONAL_MILITARY = frozenset({'军事示威','有限军事试探','升级边境军事行动','常规军事施压','大规模常规军事行动','纵深常规打击','最大规模常规作战'})
+PRESENCE_FIELDS = ('economic_presence', 'military_presence', 'soft_presence')
+DIPLOMATIC_ACTIONS = frozenset({'初步外交施压', '加强外交施压'})
+ECONOMIC_ACTIONS = frozenset({'经济施压', '扩大经济战'})
 
 
 def number(value: Any) -> Decimal:
@@ -43,6 +47,30 @@ def out(value: Decimal) -> float:
     return float(quant(value))
 
 
+def global_presence(country: dict, config: dict | None = None) -> Decimal:
+    """Calculate IPG from its three authoritative presence dimensions."""
+    cfg = config or DEFAULT_CONFIG
+    weights = cfg['presence_weights']
+    return quant(sum(number(country[field]) * number(weights[field]) for field in PRESENCE_FIELDS))
+
+
+def _refresh_global_presence(countries: dict, config: dict) -> None:
+    for country in countries.values():
+        country['global_presence'] = out(global_presence(country, config))
+
+
+def _presence_category(action: str) -> str:
+    if action in DIPLOMATIC_ACTIONS:
+        return 'diplomatic'
+    if action in ECONOMIC_ACTIONS:
+        return 'economic'
+    if action in CONVENTIONAL_MILITARY:
+        return 'military'
+    if action in NUCLEAR_ACTIONS:
+        return 'nuclear'
+    return 'status_quo'
+
+
 def _get(matrix: dict, a: str, b: str) -> Decimal:
     return number(matrix.get(a, {}).get(b, 0))
 
@@ -56,7 +84,7 @@ def _config(config: dict | None) -> dict:
     if config:
         unknown = set(config) - set(c)
         if unknown:
-            raise ValueError(f'unknown v5 config fields: {sorted(unknown)}')
+            raise ValueError(f'unknown v6 config fields: {sorted(unknown)}')
         c.update(deepcopy(config))
     if not isinstance(c['actions'], dict) or set(c['actions']) != set(ACTION_LEVELS):
         raise ValueError('规则参数 actions 必须包含全部原有行动名称')
@@ -66,11 +94,24 @@ def _config(config: dict | None) -> dict:
             raise ValueError('保持不变必须为0')
         if name != '保持不变' and ((name in {'完全投降','大规模撤退','重大让步','中等规模撤退','有限战术撤退','小规模后撤','外交降级','最低限度让步'}) != (n < 0)):
             raise ValueError(f'行动数值符号不合法: {name}')
-    for key in ('conventional_intensity_divisor','nuclear_intensity_divisor','capability_offset','nuclear_territory_scale'):
+    for key in ('conventional_intensity_divisor','nuclear_intensity_divisor','capability_offset','nuclear_ipg_scale'):
         if number(c[key]) <= 0: raise ValueError(f'{key} 必须大于0')
-    for key in ('territory_win_min','territory_win_gap','threat_effect','conventional_loss_rate','capability_min','capability_max','nuclear_territory_max_bonus','nuclear_capability_threshold'):
+    for key in ('ipg_win_min','ipg_win_gap','threat_effect','conventional_loss_rate','capability_min','capability_max','nuclear_ipg_max_bonus','second_strike_reserve_fraction'):
         if number(c[key]) < 0: raise ValueError(f'{key} 必须非负')
     if number(c['capability_min']) > number(c['capability_max']): raise ValueError('战损倍率上下界无效')
+    if not ZERO < number(c['second_strike_reserve_fraction']) <= 1:
+        raise ValueError('second_strike_reserve_fraction 必须大于0且不超过1')
+    weights = c.get('presence_weights')
+    if not isinstance(weights, dict) or set(weights) != set(PRESENCE_FIELDS):
+        raise ValueError('presence_weights 必须包含三个存在维度')
+    if any(number(weights[field]) <= 0 for field in PRESENCE_FIELDS) or sum((number(weights[field]) for field in PRESENCE_FIELDS), ZERO) != 1:
+        raise ValueError('presence_weights 必须为正且总和为1')
+    impacts = c.get('presence_impact_weights')
+    if not isinstance(impacts, dict) or set(impacts) != {'status_quo','diplomatic','economic','military','nuclear'}:
+        raise ValueError('presence_impact_weights 分类不完整')
+    for category, values in impacts.items():
+        if not isinstance(values, list) or len(values) != 3 or any(number(value) < 0 for value in values) or sum((number(value) for value in values), ZERO) != 1:
+            raise ValueError(f'存在影响权重无效: {category}')
     return c
 
 
@@ -110,6 +151,8 @@ def validate_decisions(state: dict, decisions: dict, config: dict | None = None)
                 allocated[k] += v
             if name in ACTUAL_NUCLEAR and (number(countries[cid].get('nuclear', 0)) <= 0 or number(action.get('nuclear', 0)) <= 0):
                 raise ValueError('actual nuclear use requires allocated nuclear forces')
+            if name in ACTUAL_NUCLEAR and not can_deliver(state, cid, target):
+                raise ValueError('nuclear delivery range is insufficient for the target')
         for k,v in allocated.items():
             if v > number(countries[cid].get(k,0)):
                 raise ValueError('forces cannot be allocated twice or exceed available forces')
@@ -155,6 +198,7 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     validate_decisions(state, decisions, cfg)
     current = deepcopy(state)
     countries = current['countries']
+    _refresh_global_presence(countries, cfg)
     conflicts = current.setdefault('conflicts', {})
     history = current.setdefault('threat_history', {})
     old_conflicts = deepcopy(conflicts)
@@ -162,6 +206,31 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     living_at_start = sorted(cid for cid,c in countries.items() if c.get('alive',True))
     round_number = int(current.get('round', 1))
     choices = {(cid, a['target_id']): a for cid,d in decisions.items() for a in d.get('actions',[])}
+    automatic_second_strikes = []
+    incoming = {
+        target: sorted(source for (source, dst), action in choices.items()
+                       if dst == target and action['action_id'] in ACTUAL_NUCLEAR)
+        for target in living_at_start
+    }
+    for defender in living_at_start:
+        attackers = incoming[defender]
+        if not attackers or not has_second_strike(countries[defender]):
+            continue
+        reserve = number(countries[defender]['nuclear']) * number(cfg['second_strike_reserve_fraction'])
+        allocation = quant(reserve / len(attackers))
+        for attacker in attackers:
+            existing = choices.get((defender, attacker))
+            if existing and existing['action_id'] in ACTUAL_NUCLEAR:
+                continue
+            mirrored = choices[(attacker, defender)]['action_id']
+            choices[(defender, attacker)] = {
+                'target_id': attacker, 'action_id': mirrored,
+                'conventional': 0, 'nuclear': out(allocation),
+            }
+            automatic_second_strikes.append({
+                'source': defender, 'target': attacker, 'action_id': mirrored,
+                'nuclear': out(allocation), 'replaced_action_id': existing['action_id'] if existing else None,
+            })
     old_nuclear_users = set(current.get('nuclear_used', []))
     nuclear_users = old_nuclear_users | {a for (a,_),v in choices.items() if v['action_id'] in ACTUAL_NUCLEAR}
     current['nuclear_used'] = sorted(nuclear_users)
@@ -178,7 +247,8 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
         _put(conflicts,a,b,new)
         _put(history,a,b,historic)
     # Include opposite missing directions as neutral actions in every existing pair.
-    logs=[]; claims: dict[str,dict[str,Decimal]]={cid:{} for cid in living_at_start}
+    logs=[]
+    claims: dict[str,dict[str,dict[str,Decimal]]]={cid:{} for cid in living_at_start}
     combat_losses={cid:{'conventional':ZERO,'nuclear':ZERO} for cid in living_at_start}
     default={'action_id':'保持不变','conventional':0,'nuclear':0}
     mutual_nuclear=[]; mutual_surrender=[]
@@ -202,14 +272,22 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
         ea=effective(a,b,aa,na,prior_a); eb=effective(b,a,bb,nb,prior_b)
         difference=abs(ea-eb)
         if (aa in ACTUAL_NUCLEAR and bb in CONVENTIONAL_MILITARY) or (bb in ACTUAL_NUCLEAR and aa in CONVENTIONAL_MILITARY):
-            theta=Decimal(1)+min(difference/number(cfg['nuclear_territory_scale']),number(cfg['nuclear_territory_max_bonus']))
+            theta=Decimal(1)+min(difference/number(cfg['nuclear_ipg_scale']),number(cfg['nuclear_ipg_max_bonus']))
         else:
             theta=Decimal(1)
         claim=quant(difference*theta)
         if ea>eb: loser,winner=b,a
         elif eb>ea: loser,winner=a,b
         else: loser=winner=None
-        if loser and claim>0: claims[loser][winner]=claim
+        presence_claims = {}
+        if loser and claim>0:
+            category = _presence_category(ca['action_id'] if winner == a else cb['action_id'])
+            impact = cfg['presence_impact_weights'][category]
+            presence_claims = {
+                field: quant(claim * number(impact[index]) / number(cfg['presence_weights'][field]))
+                for index, field in enumerate(PRESENCE_FIELDS)
+            }
+            claims[loser][winner] = presence_claims
         combat = aa in CONVENTIONAL_MILITARY or bb in CONVENTIONAL_MILITARY
         actual=[name for name in (aa,bb) if name in ACTUAL_NUCLEAR]
         intensity=ZERO; rates={'conventional':ZERO,'nuclear':ZERO}
@@ -232,29 +310,37 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
                 loss=min(loss,number(choice.get(kind,0)))
                 combat_losses[cid][kind]+=loss
                 item_losses[cid][kind]=out(loss)
-        logs.append({'parties':[a,b],'actions':{a:aa,b:bb}, 'levels':{a:out(na),b:out(nb)},'territory_levels':{a:out(ea),b:out(eb)}, 'territory_claim':out(claim),'territory_winner':winner,'theta':out(theta),'intensity':out(intensity),'losses':item_losses})
+        logs.append({'parties':[a,b],'actions':{a:aa,b:bb}, 'levels':{a:out(na),b:out(nb)},
+                     'effective_levels':{a:out(ea),b:out(eb)}, 'ipg_claim':out(claim),
+                     'ipg_winner':winner, 'presence_claims':{k:out(v) for k,v in presence_claims.items()},
+                     'theta':out(theta),'intensity':out(intensity),'losses':item_losses})
     ledger=[]
     for payer in living_at_start:
         payer_claims=claims[payer]
         if not payer_claims: continue
-        balance=number(countries[payer]['territory'])
         if not countries[payer].get('alive',True):
-            ledger.append({'payer':payer,'status':'already_eliminated','claims':{k:out(v) for k,v in payer_claims.items()}})
+            ledger.append({'payer':payer,'status':'already_eliminated'})
             continue
-        # Dead beneficiaries' awards return to payer, and are not redistributed.
-        allocated=_allocate(balance,payer_claims)
-        transferred=ZERO
-        for receiver,share in sorted(allocated.items()):
-            eligible=countries[receiver].get('alive',True)
-            actual=share if eligible else ZERO
-            transferred+=actual
-            countries[receiver]['territory']=out(number(countries[receiver]['territory'])+actual)
-            ledger.append({'payer':payer,'receiver':receiver,'claim':out(payer_claims[receiver]),'allocated':out(share),'transferred':out(actual),'returned':out(share-actual)})
-        remaining=quant(balance-transferred)
-        countries[payer]['territory']=out(remaining)
-        if remaining<=0:
+        # Settle each authoritative presence dimension independently. Dead
+        # beneficiaries' awards return to the payer and are not redistributed.
+        for field in PRESENCE_FIELDS:
+            dimension_claims={receiver: values[field] for receiver,values in payer_claims.items()}
+            balance=number(countries[payer][field])
+            allocated=_allocate(balance,dimension_claims)
+            transferred=ZERO
+            for receiver,share in sorted(allocated.items()):
+                eligible=countries[receiver].get('alive',True)
+                actual=share if eligible else ZERO
+                transferred+=actual
+                countries[receiver][field]=out(number(countries[receiver][field])+actual)
+                ledger.append({'payer':payer,'receiver':receiver,'dimension':field,
+                               'claim':out(dimension_claims[receiver]),'allocated':out(share),
+                               'transferred':out(actual),'returned':out(share-actual)})
+            countries[payer][field]=out(quant(balance-transferred))
+        _refresh_global_presence(countries, cfg)
+        if global_presence(countries[payer], cfg)<=0:
             countries[payer]['alive']=False
-    # Losses arise from sealed actions; the entire round is settled even if territory falls to 0.
+    # Losses arise from sealed actions; the entire round is settled even if IPG falls to 0.
     for cid in living_at_start:
         for kind in ('conventional','nuclear'):
             countries[cid][kind]=out(max(ZERO,number(countries[cid].get(kind,0))-combat_losses[cid][kind]))
@@ -270,6 +356,7 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
                     if other!=target: countries[other]['alive']=False
                 break
     alive=[cid for cid in living_at_start if countries[cid].get('alive',True)]
+    _refresh_global_presence(countries, cfg)
     winner=None; reason=None
     if mutual_surrender:
         reason='mutual_surrender'
@@ -279,11 +366,13 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
         winner=alive[0]; reason='last_country'
     elif len(alive)>1:
         for cid in alive:
-            value=number(countries[cid]['territory'])
-            lead=max(number(countries[other]['territory']) for other in alive if other!=cid)
-            if value>=number(cfg['territory_win_min']) and value-lead>=number(cfg['territory_win_gap']):
-                winner=cid; reason='territory_victory'; break
+            value=global_presence(countries[cid], cfg)
+            lead=max(global_presence(countries[other], cfg) for other in alive if other!=cid)
+            if value>=number(cfg['ipg_win_min']) and value-lead>=number(cfg['ipg_win_gap']):
+                winner=cid; reason='ipg_victory'; break
     if reason is None and round_number>=int(cfg['max_rounds']): reason='round_limit'
     current['round'] = round_number if reason else round_number+1
     current['outcome']={'finished':reason is not None, 'winner_id':winner, 'reason':reason}
-    return current, {'round':round_number,'pairs':logs,'territory_transfers':ledger,'outcome':deepcopy(current['outcome'])}
+    return current, {'round':round_number,'pairs':logs,'presence_transfers':ledger,
+                     'automatic_second_strikes':automatic_second_strikes,
+                     'outcome':deepcopy(current['outcome'])}

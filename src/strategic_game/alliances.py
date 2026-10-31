@@ -1,4 +1,4 @@
-"""Private alliance contracts and auditable loans for v5.
+"""Private alliance contracts and auditable loans for v6.
 
 Mutates the supplied state; caller owns atomic round transaction/checkpointing.
 Inputs are sealed before this function is called. Monetary quantities are
@@ -127,7 +127,7 @@ def resolve(state, decisions, config=None):
     """Resolve sealed alliance choices deterministically. Return newly produced events.
 
     Response to an invitation created in round r is accepted only in round r+1.
-    Invite, response, borrow and return entries follow the v5 protocol contract.
+    Invite, response, borrow and return entries follow the v6 protocol contract.
     Dynamic conflicts between simultaneous requests fail privately and visibly;
     invalid requests never mint force or expose secret details publicly.
     """

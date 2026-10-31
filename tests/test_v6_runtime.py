@@ -2,14 +2,14 @@ import contextlib, io, json, tempfile, unittest
 from pathlib import Path
 from strategic_game import cli, runtime as v, protocol as p
 
-class V5RuntimeTests(unittest.TestCase):
+class V6RuntimeTests(unittest.TestCase):
     def test_complete_record_public_and_replay(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d)/'run'
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.main(['run','--provider','mock','--rounds','3','--out',str(out)]),0)
             data=json.loads((out/'run.json').read_text())
-            self.assertEqual(data['rules_version'],'v5.0')
+            self.assertEqual(data['rules_version'],'v6.0')
             self.assertEqual(len(data['rounds']),3)
             self.assertTrue(v.replay(data)[0])
             public=(out/'public.json').read_text()
@@ -82,7 +82,7 @@ class RealAdapterTests(unittest.TestCase):
             name='scripted'
             last_call_info={}
             def decide(self, phase, system, user, situation):
-                assert phase == 'v5_sealed'
+                assert phase == 'v6_sealed'
                 assert all('profile' not in value for key, value in situation['state']['countries'].items() if key != situation['country_id'])
                 return json.dumps(p.make_fallback(situation),ensure_ascii=False)
         state=p.validate_scenario(json.loads(Path(v.DEFAULT_SCENARIO).read_text()))

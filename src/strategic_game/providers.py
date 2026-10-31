@@ -1,4 +1,4 @@
-"""Model transports for v5 sealed decisions."""
+"""Model transports for v6 sealed decisions."""
 from __future__ import annotations
 
 import json

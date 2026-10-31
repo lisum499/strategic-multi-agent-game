@@ -1,0 +1,73 @@
+import json
+import unittest
+from pathlib import Path
+
+from strategic_game import protocol, rules, runtime
+
+
+class CapabilityRulesTest(unittest.TestCase):
+    def scenario(self):
+        return json.loads(Path(runtime.DEFAULT_SCENARIO).read_text(encoding='utf-8'))
+
+    def test_nuclear_threshold_and_second_strike_are_hard_constraints(self):
+        scenario = self.scenario()
+        scenario['countries']['C1']['conventional'] = 39
+        with self.assertRaises(protocol.V6ValidationError):
+            protocol.validate_scenario(scenario)
+
+        scenario = self.scenario()
+        scenario['countries']['C1'].update({'conventional': 90, 'nuclear': 60})
+        state = protocol.validate_scenario(scenario)
+        self.assertEqual(state['countries']['C1']['nuclear_status'], '二次核打击')
+
+    def test_nuclear_status_is_derived_from_initial_force_values(self):
+        cases = (
+            (0, '无'),
+            (20, '有，但发动打击能力有限'),
+            (21, '有'),
+            (59, '有'),
+            (60, '二次核打击'),
+            (100, '二次核打击'),
+        )
+        for nuclear, expected in cases:
+            with self.subTest(nuclear=nuclear):
+                scenario = self.scenario()
+                scenario['countries']['C1'].update({'conventional': 90, 'nuclear': nuclear})
+                state = protocol.validate_scenario(scenario)
+                self.assertEqual(state['countries']['C1']['nuclear_status'], expected)
+
+    def test_delivery_range_filters_actual_nuclear_use(self):
+        scenario = self.scenario()
+        scenario['countries']['C1'].update({'nuclear': 20})
+        scenario['conflicts'] = {'C1': {'C2': 45, 'C3': 45}}
+        state = protocol.validate_scenario(scenario)
+        self.assertIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C2')})
+        self.assertNotIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C3')})
+
+    def test_second_strike_is_automatic_and_audited(self):
+        scenario = self.scenario()
+        scenario['countries']['C1'].update({'conventional': 90, 'nuclear': 60})
+        scenario['conflicts'] = {'C2': {'C1': 45}}
+        state = protocol.validate_scenario(scenario)
+        state['round'] = 1
+        decisions = {cid: {'actions': []} for cid in state['countries']}
+        decisions['C2']['actions'] = [{
+            'target_id': 'C1', 'action_id': '有限核武器使用',
+            'conventional': 0, 'nuclear': 1,
+        }]
+        _, record = rules.settle_round(state, decisions)
+        self.assertEqual(record['automatic_second_strikes'], [{
+            'source': 'C1', 'target': 'C2', 'action_id': '有限核武器使用',
+            'nuclear': 15.0, 'replaced_action_id': None,
+        }])
+        self.assertEqual(record['pairs'][0]['actions']['C1'], '有限核武器使用')
+
+    def test_distance_matrix_must_be_complete_and_symmetric(self):
+        scenario = self.scenario()
+        del scenario['distance_bands']['C1']['C2']
+        with self.assertRaises(protocol.V6ValidationError):
+            protocol.validate_scenario(scenario)
+
+
+if __name__ == '__main__':
+    unittest.main()

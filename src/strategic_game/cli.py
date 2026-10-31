@@ -42,14 +42,14 @@ def _model_settings(provider) -> dict:
     return settings
 
 
-def cmd_run_v5(args: argparse.Namespace) -> int:
+def cmd_run_v6(args: argparse.Namespace) -> int:
     from . import runtime as runtime, protocol as protocol, rules as rules
     if args.retries < 0:
         raise ValueError("retries 必须 ≥0")
     scenario_path = args.scenario or runtime.DEFAULT_SCENARIO
     scenario = protocol.validate_scenario(json.loads(Path(scenario_path).read_text(encoding="utf-8")))
     if args.rounds is not None:
-        if not 1 <= args.rounds <= 30: raise ValueError("v5 rounds 必须在 1 到 30 之间")
+        if not 1 <= args.rounds <= 30: raise ValueError("v6 rounds 必须在 1 到 30 之间")
         scenario["max_rounds"] = args.rounds
     name = "mock" if args.mock else (args.provider or ("openai" if args.base_url else "mock"))
     if args.mock and args.provider not in (None, "mock"): raise ValueError("--mock 不能与真实模型同时使用")
@@ -60,9 +60,9 @@ def cmd_run_v5(args: argparse.Namespace) -> int:
     state = copy.deepcopy(scenario); state["round"] = 1
     config = rules._config(scenario.get("rule_config")); config["max_rounds"] = scenario["max_rounds"]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    run_dir = Path(args.out) if args.out else RUNS_DIR / f"{stamp}-v5-{name}"
+    run_dir = Path(args.out) if args.out else RUNS_DIR / f"{stamp}-v6-{name}"
     run_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
-    data = {"rules_version":"v5.0","decision_protocol":"v5_sealed","source_fingerprint":runtime.fingerprint(),"config_fingerprint":runtime.config_fingerprint(config),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
+    data = {"rules_version":"v6.0","decision_protocol":"v6_sealed","source_fingerprint":runtime.fingerprint(),"config_fingerprint":runtime.config_fingerprint(config),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
     def save():
         _atomic_write(run_dir / "run.json", json.dumps(data, ensure_ascii=False, indent=2))
     save(); print(f"实验目录：{run_dir}", flush=True)
@@ -86,7 +86,7 @@ def cmd_run_v5(args: argparse.Namespace) -> int:
     if data["run_status"] in ("completed", "completed_with_errors"):
         md, page = runtime.reports(data)
         _atomic_write(run_dir / "report.md", md); _atomic_write(run_dir / "report.html", page)
-        _atomic_write(run_dir / "public.json", json.dumps({"rules_version":"v5.0","rounds":[r["public"] for r in data["rounds"]],"result":data["result"]}, ensure_ascii=False, indent=2))
+        _atomic_write(run_dir / "public.json", json.dumps({"rules_version":"v6.0","rounds":[r["public"] for r in data["rounds"]],"result":data["result"]}, ensure_ascii=False, indent=2))
         print(f"完成：{run_dir}\n回看：{run_dir / 'report.html'}\n胜者：{data['result'].get('winner_id') or '无'}（{data['result'].get('reason')}）")
         return 0 if data["run_status"] == "completed" else 1
     print(f"运行{data['run_status']}：{data.get('error_type')} {data.get('error_message','')}；记录：{run_dir / 'run.json'}", file=sys.stderr)
@@ -99,14 +99,14 @@ def cmd_replay(args: argparse.Namespace) -> int:
         print(f"找不到文件：{path}", file=sys.stderr)
         return 1
     run_data = json.loads(path.read_text(encoding="utf-8"))
-    if run_data.get("rules_version") == "v5.0" and not getattr(args, "show_only", False):
+    if run_data.get("rules_version") == "v6.0" and not getattr(args, "show_only", False):
         from . import runtime as runtime
         if run_data.get("source_fingerprint") != runtime.fingerprint():
             print("规则代码与原运行不一致，无法精确回放", file=sys.stderr); return 1
         if run_data.get("config_fingerprint") != runtime.config_fingerprint(run_data.get("rule_config")):
             print("运行参数快照已改变，无法精确回放", file=sys.stderr); return 1
         ok, message = runtime.replay(run_data)
-        print(f"v5 回放：{message}")
+        print(f"v6 回放：{message}")
         if args.report and ok:
             md, page = runtime.reports(run_data)
             _atomic_write(path.parent / "report.md", md); _atomic_write(path.parent / "report.html", page)
@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="跑一局")
-    run.add_argument("--rules-version", choices=("v5",), default="v5", help="规则版本")
+    run.add_argument("--rules-version", choices=("v6",), default="v6", help="规则版本")
     run.add_argument("--provider", default=None, choices=("mock", "deepseek", "openai"))
     run.add_argument("--mock", action="store_true", help="兼容旧入口，等价于 --provider mock")
     run.add_argument("--scenario", default=None)
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
                      help="首次尝试失败后的最多重试次数")
     run.add_argument("--no-prompts", action="store_true",
                      help="日志不保存 system/user 原文")
-    run.set_defaults(func=cmd_run_v5)
+    run.set_defaults(func=cmd_run_v6)
 
     replay = sub.add_parser("replay", help="用保存的决策重放并核对状态")
     replay.add_argument("run")

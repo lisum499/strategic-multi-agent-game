@@ -31,10 +31,21 @@
     "最后核警告": "95",
     "战略核战争": "100"
   },
-  "nuclear_capability_threshold": "70",
   "threat_effect": "35",
-  "territory_win_min": "50",
-  "territory_win_gap": "30",
+  "ipg_win_min": "50",
+  "ipg_win_gap": "30",
+  "presence_weights": {
+    "economic_presence": "0.43",
+    "military_presence": "0.21",
+    "soft_presence": "0.36"
+  },
+  "presence_impact_weights": {
+    "status_quo": ["0.43", "0.21", "0.36"],
+    "diplomatic": ["0.10", "0", "0.90"],
+    "economic": ["0.80", "0", "0.20"],
+    "military": ["0.20", "0.70", "0.10"],
+    "nuclear": ["0.40", "0.50", "0.10"]
+  },
   "max_rounds": 30,
   "conventional_intensity_divisor": "20",
   "nuclear_intensity_divisor": "400",
@@ -59,6 +70,7 @@
       "0.18"
     ]
   ],
-  "nuclear_territory_max_bonus": "1",
-  "nuclear_territory_scale": "100"
+  "nuclear_ipg_max_bonus": "1",
+  "nuclear_ipg_scale": "100",
+  "second_strike_reserve_fraction": "0.25"
 }
