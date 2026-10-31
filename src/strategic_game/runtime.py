@@ -2,7 +2,7 @@
 from __future__ import annotations
 import copy, hashlib, html, json
 from pathlib import Path
-from . import protocol as protocol, rules as rules, alliances as alliances, knowledge as knowledge
+from . import protocol as protocol, rules as rules, alliances as alliances, diplomacy as diplomacy, knowledge as knowledge
 
 DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'three_states.json')
 
@@ -17,7 +17,8 @@ def public_state(state):
             'conflicts': copy.deepcopy(state.get('conflicts', {})),
             'pressure_streaks': copy.deepcopy(state.get('pressure_streaks', {})),
             'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
-            'alliances': alliances.view(state)}
+            'alliances': alliances.view(state),
+            'diplomacy': diplomacy.view(state)}
 
 def situation_for(state, country, history, config):
     public = public_state(state)
@@ -62,7 +63,7 @@ def decisions_for(state, provider, history, config, retries=3, no_prompts=False,
             if last:
                 actual_user += ('\n上次输出未通过校验：' + last
                                 + '\n请重新输出完整JSON对象，不要只返回修正字段。'
-                                  '确保六个联盟/借调操作数组全部存在；actions中每个target_id最多出现一次，'
+                                  '确保全部联盟、借调和外交协议操作数组都存在；actions中每个target_id最多出现一次，'
                                   '同一目标的备选行动必须删除，只保留最终选择。')
             call = {'round': state['round'], 'country_id': cid, 'attempt': attempt + 1,
                     'status': 'started', 'error': None,
@@ -108,6 +109,7 @@ def advance(state, decisions, config):
             break
         replacements.extend(failures)
         effective = revised
+    diplomatic_events = diplomacy.resolve(new, effective)
     rules.validate_decisions(new, effective, config)
     new, record = rules.settle_round(new, effective, config)
     alliances.break_conflicting_alliances(new)
@@ -116,6 +118,7 @@ def advance(state, decisions, config):
         if assessment:
             new.setdefault('private_threat_assessments', {})[cid] = {'round': record['round'], 'text': assessment}
     record['alliance_events'] = alliance_events
+    record['diplomatic_events'] = diplomatic_events
     record['settlement_fallbacks'] = replacements
     record['effective_decisions'] = effective
     return new, record
@@ -129,6 +132,7 @@ def public_round(record, decisions, state):
         'presence_transfers': copy.deepcopy(record['presence_transfers']),
         'pressure_costs': copy.deepcopy(record.get('pressure_costs', [])),
         'automatic_second_strikes': copy.deepcopy(record.get('automatic_second_strikes', [])),
+        'diplomatic_events': copy.deepcopy(record.get('diplomatic_events', [])),
         'outcome': copy.deepcopy(record['outcome']),
     }
     return {'round':record['round'], 'declarations': declarations,
@@ -136,7 +140,8 @@ def public_round(record, decisions, state):
             'actions':{cid:[{'target_id':a['target_id'],'action_id':a['action_id']} for a in d['actions']] for cid,d in effective.items()},
             'presence_transfers':copy.deepcopy(record['presence_transfers']),
             'automatic_second_strikes':copy.deepcopy(record.get('automatic_second_strikes', [])),
-            'alliances':alliances.view(state), 'state':public_state(state), 'outcome':copy.deepcopy(record['outcome']),
+            'alliances':alliances.view(state), 'diplomacy':diplomacy.view(state),
+            'state':public_state(state), 'outcome':copy.deepcopy(record['outcome']),
             'settlement_fallbacks': [x['country_id'] for x in record.get('settlement_fallbacks', [])]}
 
 
@@ -189,7 +194,7 @@ def reports(data):
 
 def fingerprint():
     h = hashlib.sha256()
-    for module in (rules, protocol, alliances, knowledge): h.update(Path(module.__file__).read_bytes())
+    for module in (rules, protocol, alliances, diplomacy, knowledge): h.update(Path(module.__file__).read_bytes())
     h.update(Path(__file__).read_bytes())
     return h.hexdigest()
 

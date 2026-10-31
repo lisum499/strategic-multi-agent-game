@@ -107,6 +107,25 @@ class V6RuntimeTests(unittest.TestCase):
         self.assertNotIn('declarations',history['confirmed_facts'])
         self.assertIn('executed_actions',history['confirmed_facts'])
 
+    def test_diplomatic_agreement_requires_next_round_structured_acceptance(self):
+        state=p.validate_scenario(json.loads(Path(v.DEFAULT_SCENARIO).read_text()))
+        state['round']=1
+        config=__import__('strategic_game.rules',fromlist=['DEFAULT_CONFIG']).DEFAULT_CONFIG
+        decisions={cid:p.make_fallback(v.situation_for(state,cid,[],config)) for cid in state['countries']}
+        decisions['C1']['declaration']='C2已经同意停火'
+        decisions['C1']['diplomatic_proposals']=[{'target_id':'C2','kind':'ceasefire','terms':'双方停止施压'}]
+        state,record=v.advance(state,decisions,config)
+        self.assertFalse(state['diplomatic_agreements'])
+        proposal_id=next(iter(state['diplomatic_proposals']))
+        decisions={cid:p.make_fallback(v.situation_for(state,cid,[],config)) for cid in state['countries']}
+        decisions['C2']['diplomatic_responses']=[{'proposal_id':proposal_id,'accept':True}]
+        state,record=v.advance(state,decisions,config)
+        self.assertIn(proposal_id,state['diplomatic_agreements'])
+        self.assertEqual(record['diplomatic_events'][0]['type'],'diplomatic_agreement_confirmed')
+        public=v.public_round(record,decisions,state)
+        self.assertEqual(public['confirmed_facts']['diplomatic_events'][0]['type'],
+                         'diplomatic_agreement_confirmed')
+
 if __name__ == '__main__': unittest.main()
 
 class RealAdapterTests(unittest.TestCase):

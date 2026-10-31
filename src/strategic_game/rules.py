@@ -104,6 +104,12 @@ def _config(config: dict | None) -> dict:
             or any(not ZERO < number(value) <= 1 for value in multipliers)
             or any(number(multipliers[index]) > number(multipliers[index - 1]) for index in range(1, len(multipliers)))):
         raise ValueError('repeat_pressure_multipliers 必须是非空、递减且大于0不超过1的数组')
+    cost_multipliers = c.get('repeat_pressure_cost_multipliers')
+    if (not isinstance(cost_multipliers, list) or not cost_multipliers
+            or any(number(value) < 1 for value in cost_multipliers)
+            or any(number(cost_multipliers[index]) < number(cost_multipliers[index - 1])
+                   for index in range(1, len(cost_multipliers)))):
+        raise ValueError('repeat_pressure_cost_multipliers 必须是非空、递增且不小于1的数组')
     if number(c['capability_min']) > number(c['capability_max']): raise ValueError('战损倍率上下界无效')
     if not ZERO < number(c['second_strike_reserve_fraction']) <= 1:
         raise ValueError('second_strike_reserve_fraction 必须大于0且不超过1')
@@ -341,6 +347,7 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
                      'ipg_winner':winner, 'presence_claims':{k:out(v) for k,v in presence_claims.items()},
                      'theta':out(theta),'intensity':out(intensity),'losses':item_losses})
     pressure_costs=[]
+    cost_multipliers = [number(value) for value in cfg['repeat_pressure_cost_multipliers']]
     for (actor, target), choice in sorted(choices.items()):
         name = choice['action_id']; effective_delta = max(ZERO, effective_deltas[(actor, target)])
         if name in DIPLOMATIC_ACTIONS:
@@ -349,11 +356,15 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
             field, rate = 'economic_presence', number(cfg['economic_pressure_cost_rate'])
         else:
             continue
-        requested = quant(effective_delta * rate)
+        streak = int(pressure_details[(actor, target)]['streak'])
+        cost_multiplier = cost_multipliers[min(max(streak - 1, 0), len(cost_multipliers) - 1)]
+        raw_delta = max(ZERO, number(cfg['actions'][name]))
+        requested = quant(raw_delta * rate * cost_multiplier)
         charged = min(number(countries[actor][field]), requested)
         countries[actor][field] = out(number(countries[actor][field]) - charged)
         pressure_costs.append({'actor':actor, 'target':target, 'action_id':name, 'dimension':field,
                                'effective_delta':out(effective_delta), 'rate':out(rate),
+                               'streak':streak, 'cost_multiplier':out(cost_multiplier),
                                'requested':out(requested), 'charged':out(charged)})
     ledger=[]
     for payer in living_at_start:

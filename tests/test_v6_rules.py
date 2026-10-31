@@ -102,6 +102,14 @@ class TestV6(unittest.TestCase):
             observed.append(log['pairs'][0]['effective_increments']['A'])
         self.assertEqual(observed,[1,0.75,0.5,0.25])
         self.assertEqual(s['pressure_streaks']['A']['B'],{'category':'diplomatic','count':4})
+    def test_repeated_pressure_cost_rises_despite_effect_decay(self):
+        s=state(presence=1000)
+        costs=[]
+        for _ in range(5):
+            s,log=r.settle_round(s,decision(('A','B'),{'A':[a('B','加强外交施压')]}))
+            costs.append(log['pressure_costs'][0]['charged'])
+        self.assertEqual(costs,[0.1,0.2,0.4,0.8,0.8])
+        self.assertEqual(log['pressure_costs'][0]['cost_multiplier'],8)
     def test_changing_pressure_category_resets_streak(self):
         s=state(presence=1000)
         s,_=r.settle_round(s,decision(('A','B'),{'A':[a('B','加强外交施压')]}))
