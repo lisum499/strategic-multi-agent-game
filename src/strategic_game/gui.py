@@ -20,6 +20,9 @@ from . import protocol, runtime
 CULTURES = ("国际主义", "民族主义", "进步主义", "现实主义")
 COUNTRY_FIELDS = ("name", "strategic_culture", "ideology_focus", "economic_presence",
                   "military_presence", "soft_presence", "conventional", "nuclear")
+COLORS = {"background": "#f4f6f8", "surface": "#ffffff", "border": "#d8dee6",
+          "text": "#17202a", "muted": "#637083", "accent": "#1769aa",
+          "accent_active": "#0f568f", "log": "#111827"}
 
 
 def bundled_scenario() -> dict:
@@ -41,6 +44,65 @@ def make_scenario(countries: dict, world_context: str, rounds: int) -> dict:
     # knowledge fields that are forbidden as user-authored scenario input.
     protocol.validate_scenario(copy.deepcopy(scenario))
     return scenario
+
+
+def _country_name(country_id, names):
+    return f"{names.get(country_id, country_id)}（{country_id}）"
+
+
+def _forces(item):
+    parts = []
+    conventional = item.get("conventional", 0)
+    nuclear = item.get("nuclear", 0)
+    if conventional:
+        parts.append(f"常规力量 {conventional:g}" if isinstance(conventional, (int, float)) else f"常规力量 {conventional}")
+    if nuclear:
+        parts.append(f"核力量 {nuclear:g}" if isinstance(nuclear, (int, float)) else f"核力量 {nuclear}")
+    return "、".join(parts) or "不投入军事力量"
+
+
+def format_decision(decision: dict, names: dict[str, str]) -> str:
+    """Render a validated decision package as readable Chinese, without raw JSON."""
+    lines = [f"现状评估\n{decision.get('assessment') or '未填写'}",
+             f"局势预测\n{decision.get('forecast') or '未填写'}",
+             f"公开声明\n{decision.get('declaration') or '无'}"]
+
+    actions = decision.get("actions", [])
+    action_lines = []
+    for item in actions:
+        text = f"对 {_country_name(item.get('target_id', '?'), names)}执行“{item.get('action_id', '未知行动')}”"
+        text += f"，{_forces(item)}"
+        dependencies = item.get("requires_loan_request_ids", [])
+        if dependencies:
+            text += "；依赖借调请求 " + "、".join(dependencies)
+        action_lines.append(text)
+    lines.append("实际行动\n" + ("\n".join(f"• {x}" for x in action_lines) if action_lines else "无行动"))
+
+    diplomacy = []
+    for item in decision.get("diplomatic_proposals", []):
+        diplomacy.append(f"向 {_country_name(item.get('target_id', '?'), names)}提出 {item.get('kind', 'other')} 协议：{item.get('terms', '')}")
+    for item in decision.get("diplomatic_responses", []):
+        diplomacy.append(f"{'接受' if item.get('accept') else '拒绝'}外交提案 {item.get('proposal_id', '?')}")
+    lines.append("外交协议\n" + ("\n".join(f"• {x}" for x in diplomacy) if diplomacy else "无"))
+
+    alliance = []
+    for item in decision.get("alliance_invites", []):
+        alliance.append(f"邀请 {_country_name(item.get('target_id', '?'), names)}结盟；本国承诺 {_forces(item.get('offer', {}))}，请求对方提供 {_forces(item.get('request', {}))}")
+    for item in decision.get("alliance_responses", []):
+        alliance.append(f"{'接受' if item.get('accept') else '拒绝'}联盟邀请 {item.get('invite_id', '?')}")
+    for item in decision.get("alliance_breaks", []):
+        alliance.append(f"解除与 {_country_name(item.get('target_id', '?'), names)}的联盟")
+    for item in decision.get("borrows", []):
+        alliance.append(f"向 {_country_name(item.get('from_id', '?'), names)}请求借调 {_forces(item)}")
+    for item in decision.get("loan_responses", []):
+        alliance.append(f"{'接受' if item.get('accept') else '拒绝'}借调请求 {item.get('request_id', '?')}")
+    for item in decision.get("returns", []):
+        suffix = "并结清借调" if item.get("close") else ""
+        alliance.append(f"向 {_country_name(item.get('to_id', '?'), names)}归还 {_forces(item)}{suffix}")
+    lines.append("联盟与借调\n" + ("\n".join(f"• {x}" for x in alliance) if alliance else "无"))
+    lines.extend((f"私人理由\n{decision.get('rationale') or '未填写'}",
+                  f"威胁评估\n{decision.get('threat_assessment') or '未填写'}"))
+    return "\n\n".join(lines)
 
 
 class QueueWriter:
@@ -126,19 +188,51 @@ class StrategicGameApp(tk.Tk):
         self.title("Strategic Multi-Agent Game")
         self.geometry("1380x860")
         self.minsize(1050, 680)
+        self.configure(background=COLORS["background"])
         self.events = queue.Queue()
         self.process = None
         self.run_file = None
         self.seen_rounds = 0
         self.countries = {}
+        self._configure_style()
         self._build()
         self.load_scenario_data(bundled_scenario())
         self.after(150, self._poll)
         self.protocol("WM_DELETE_WINDOW", self.close)
 
+    def _configure_style(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(".", font=("Segoe UI", 10), background=COLORS["background"], foreground=COLORS["text"])
+        style.configure("TFrame", background=COLORS["background"])
+        style.configure("Surface.TFrame", background=COLORS["surface"])
+        style.configure("TLabel", background=COLORS["background"], foreground=COLORS["text"])
+        style.configure("Header.TLabel", font=("Segoe UI Semibold", 18), foreground=COLORS["text"])
+        style.configure("Subtitle.TLabel", foreground=COLORS["muted"])
+        style.configure("Status.TLabel", font=("Segoe UI Semibold", 10), foreground=COLORS["accent"])
+        style.configure("TLabelframe", background=COLORS["surface"], bordercolor=COLORS["border"], relief="solid")
+        style.configure("TLabelframe.Label", background=COLORS["surface"], foreground=COLORS["text"], font=("Segoe UI Semibold", 10))
+        style.configure("TButton", padding=(10, 7), borderwidth=1)
+        style.configure("Accent.TButton", background=COLORS["accent"], foreground="#ffffff", bordercolor=COLORS["accent"])
+        style.map("Accent.TButton", background=[("active", COLORS["accent_active"]), ("disabled", "#94a3b8")])
+        style.configure("Treeview", rowheight=30, background=COLORS["surface"], fieldbackground=COLORS["surface"], bordercolor=COLORS["border"])
+        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9), background="#e9eef4", foreground=COLORS["text"], padding=7)
+        style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(14, 8), font=("Segoe UI Semibold", 9))
+
     def _build(self):
-        root = ttk.Panedwindow(self, orient="vertical"); root.pack(fill="both", expand=True)
-        config = ttk.Frame(root, padding=8); root.add(config, weight=2)
+        header = ttk.Frame(self, padding=(18, 12)); header.pack(fill="x")
+        title = ttk.Frame(header); title.pack(side="left")
+        ttk.Label(title, text="战略多智能体推演", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(title, text="配置国家、接入模型并实时观察密封决策与世界状态", style="Subtitle.TLabel").pack(anchor="w")
+        status_area = ttk.Frame(header); status_area.pack(side="right", fill="y")
+        self.status_text = tk.StringVar(value="就绪")
+        ttk.Label(status_area, textvariable=self.status_text, style="Status.TLabel").pack(anchor="e")
+        self.progress = ttk.Progressbar(status_area, mode="indeterminate", length=180)
+        self.progress.pack(anchor="e", pady=(6, 0))
+
+        root = ttk.Panedwindow(self, orient="vertical"); root.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        config = ttk.Frame(root, padding=6); root.add(config, weight=2)
         output = ttk.Panedwindow(root, orient="horizontal"); root.add(output, weight=5)
 
         scenario_box = ttk.LabelFrame(config, text="场景与国家", padding=8)
@@ -169,10 +263,12 @@ class StrategicGameApp(tk.Tk):
             ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=3)
             widget.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=3)
         self.world_context = tk.Text(settings, width=48, height=5, wrap="word")
+        self.world_context.configure(font=("Segoe UI", 10), background=COLORS["surface"], foreground=COLORS["text"],
+                                     relief="solid", borderwidth=1, padx=7, pady=6)
         ttk.Label(settings, text="世界背景").grid(row=len(rows), column=0, sticky="nw", pady=3)
         self.world_context.grid(row=len(rows), column=1, sticky="nsew", padx=(8, 0), pady=3)
         controls = ttk.Frame(settings); controls.grid(row=len(rows)+1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-        self.start_button = ttk.Button(controls, text="开始运行", command=self.start); self.start_button.pack(side="left", expand=True, fill="x")
+        self.start_button = ttk.Button(controls, text="开始运行", command=self.start, style="Accent.TButton"); self.start_button.pack(side="left", expand=True, fill="x")
         self.resume_button = ttk.Button(controls, text="断点续跑", command=self.resume); self.resume_button.pack(side="left", expand=True, fill="x", padx=(6, 0))
         self.stop_button = ttk.Button(controls, text="停止", command=self.stop, state="disabled"); self.stop_button.pack(side="left", expand=True, fill="x", padx=(6, 0))
         settings.columnconfigure(1, weight=1); settings.rowconfigure(len(rows), weight=1)
@@ -180,14 +276,20 @@ class StrategicGameApp(tk.Tk):
         log_box = ttk.LabelFrame(output, text="运行进度", padding=6); output.add(log_box, weight=2)
         log_scroll = ttk.Scrollbar(log_box); log_scroll.pack(side="right", fill="y")
         self.log = tk.Text(log_box, width=42, wrap="word", state="disabled", yscrollcommand=log_scroll.set)
+        self.log.configure(font=("Cascadia Mono", 9), background=COLORS["log"], foreground="#d7e0ea",
+                           insertbackground="#ffffff", relief="flat", padx=10, pady=10)
         self.log.pack(side="left", fill="both", expand=True); log_scroll.configure(command=self.log.yview)
         reports = ttk.Notebook(output); output.add(reports, weight=5)
         decision_frame = ttk.Frame(reports); world_frame = ttk.Frame(reports)
         decision_scroll = ttk.Scrollbar(decision_frame); decision_scroll.pack(side="right", fill="y")
         self.decisions = tk.Text(decision_frame, wrap="word", state="disabled", yscrollcommand=decision_scroll.set)
+        self.decisions.configure(font=("Segoe UI", 10), background=COLORS["surface"], foreground=COLORS["text"],
+                                 relief="flat", padx=16, pady=14, spacing1=2, spacing3=4)
         self.decisions.pack(side="left", fill="both", expand=True); decision_scroll.configure(command=self.decisions.yview)
         world_scroll = ttk.Scrollbar(world_frame); world_scroll.pack(side="right", fill="y")
         self.world = tk.Text(world_frame, wrap="none", state="disabled", yscrollcommand=world_scroll.set)
+        self.world.configure(font=("Cascadia Mono", 9), background=COLORS["surface"], foreground=COLORS["text"],
+                             relief="flat", padx=12, pady=12)
         self.world.pack(side="left", fill="both", expand=True); world_scroll.configure(command=self.world.yview)
         reports.add(decision_frame, text="国家决策（每轮统一开封后显示）"); reports.add(world_frame, text="世界状态变化")
 
@@ -279,6 +381,8 @@ class StrategicGameApp(tk.Tk):
         self.run_file = run_file; self.seen_rounds = 0
         self._set_text(self.decisions, ""); self._set_text(self.world, ""); self._append_log(f"实验目录：{run_file.parent}\n")
         self.start_button.configure(state="disabled"); self.resume_button.configure(state="disabled"); self.stop_button.configure(state="normal")
+        self.status_text.set("运行中")
+        self.progress.start(12)
         threading.Thread(target=self._launch, args=(args, env, scenario_path), daemon=True).start()
 
     def _launch(self, args, env, scenario_path):
@@ -300,6 +404,7 @@ class StrategicGameApp(tk.Tk):
 
     def stop(self):
         if self.process and self.process.poll() is None:
+            self.status_text.set("正在停止")
             self.process.terminate(); self._append_log("正在停止，已完成回合仍保留在 run.json。\n")
 
     def _poll(self):
@@ -309,6 +414,8 @@ class StrategicGameApp(tk.Tk):
                 if kind == "log": self._append_log(value)
                 elif kind == "finished":
                     self._append_log(f"后台进程结束，退出码 {value}。\n")
+                    self.progress.stop()
+                    self.status_text.set("已完成" if value == 0 else "运行结束，存在错误")
                     self.process = None; self.start_button.configure(state="normal"); self.resume_button.configure(state="normal"); self.stop_button.configure(state="disabled")
         except queue.Empty:
             pass
@@ -322,21 +429,16 @@ class StrategicGameApp(tk.Tk):
         rows = data.get("rounds", [])
         if len(rows) == self.seen_rounds: return
         self.seen_rounds = len(rows)
+        if self.process is not None:
+            self.status_text.set(f"运行中 · 已完成 {self.seen_rounds} 轮")
         decision_parts = []
         world_parts = []
         names = {cid: c["name"] for cid, c in data["initial_state"]["countries"].items()}
         for row in rows:
             decision_parts.append(f"第 {row['round']} 轮\n" + "=" * 40)
             for cid, decision in row["decisions"].items():
-                decision_parts.append(f"\n[{cid} · {names.get(cid, cid)}]\n"
-                                      f"现状评估：{decision.get('assessment','')}\n"
-                                      f"局势预测：{decision.get('forecast','')}\n"
-                                      f"公开声明：{decision.get('declaration','')}\n"
-                                      f"行动：{json.dumps(decision.get('actions',[]), ensure_ascii=False)}\n"
-                                      f"外交提案与回应：{json.dumps({key: decision.get(key, []) for key in ('diplomatic_proposals','diplomatic_responses')}, ensure_ascii=False)}\n"
-                                      f"联盟与借调：{json.dumps({key: decision.get(key, []) for key in ('alliance_invites','alliance_responses','alliance_breaks','borrows','loan_responses','returns')}, ensure_ascii=False)}\n"
-                                      f"私人理由：{decision.get('rationale','')}\n"
-                                      f"威胁评估：{decision.get('threat_assessment','')}")
+                decision_parts.append(f"\n{names.get(cid, cid)} · {cid}\n" + "-" * 32
+                                      + "\n" + format_decision(decision, names))
             world_parts.append(f"第 {row['round']} 轮状态变化\n" + "=" * 40 + "\n"
                                + json.dumps(row.get("state_changes", []), ensure_ascii=False, indent=2)
                                + "\n\n世界状态\n" + json.dumps(row["state"], ensure_ascii=False, indent=2))
