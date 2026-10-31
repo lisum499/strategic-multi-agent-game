@@ -1,4 +1,4 @@
-import contextlib, io, json, tempfile, unittest
+import contextlib, io, json, tempfile, unittest, types
 from pathlib import Path
 from unittest.mock import patch
 from strategic_game import cli, runtime as v, protocol as p
@@ -146,6 +146,12 @@ class RealAdapterTests(unittest.TestCase):
         self.assertTrue(all(x['status']=='completed' for x in calls))
 
 class ReplayIntegrityTests(unittest.TestCase):
+    def test_fingerprint_supports_frozen_module_without_source_file(self):
+        code=compile('VALUE = 1', 'embedded/module.py', 'exec')
+        loader=types.SimpleNamespace(get_code=lambda name: code)
+        module=types.SimpleNamespace(__file__='missing/module.py', __loader__=loader, __name__='embedded.module')
+        self.assertEqual(v._module_bytes(module),v._module_bytes(module))
+
     def test_changed_parameter_snapshot_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             out=Path(d)/'run'

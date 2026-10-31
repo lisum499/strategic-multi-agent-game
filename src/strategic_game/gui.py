@@ -360,6 +360,9 @@ class StrategicGameApp(tk.Tk):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--cli-worker":
+        for stream in (sys.stdout, sys.stderr):
+            if stream is not None and hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
         from .cli import main as cli_main
         return cli_main(argv[1:])
     StrategicGameApp().mainloop()

@@ -1,6 +1,6 @@
 """Sealed v6 runtime, private projections, checkpoints and reproducible replay."""
 from __future__ import annotations
-import copy, hashlib, html, json
+import copy, hashlib, html, json, marshal
 from pathlib import Path
 from . import protocol as protocol, rules as rules, alliances as alliances, diplomacy as diplomacy, knowledge as knowledge
 
@@ -192,10 +192,23 @@ def reports(data):
     md = '\n'.join(lines)
     return md, '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>v6.0 模拟报告</title><body><pre style="white-space:pre-wrap">'+html.escape(md)+'</pre></body></html>'
 
+def _module_bytes(module):
+    """Return stable module bytes in source and PyInstaller environments."""
+    path = Path(module.__file__)
+    if path.is_file():
+        return path.read_bytes()
+    loader = getattr(module, '__loader__', None)
+    code = loader.get_code(module.__name__) if loader and hasattr(loader, 'get_code') else None
+    if code is None:
+        raise RuntimeError(f'无法读取规则模块指纹：{module.__name__}')
+    return marshal.dumps(code)
+
+
 def fingerprint():
     h = hashlib.sha256()
-    for module in (rules, protocol, alliances, diplomacy, knowledge): h.update(Path(module.__file__).read_bytes())
-    h.update(Path(__file__).read_bytes())
+    for module in (rules, protocol, alliances, diplomacy, knowledge):
+        h.update(_module_bytes(module))
+    h.update(_module_bytes(__import__(__name__, fromlist=['*'])))
     return h.hexdigest()
 
 
