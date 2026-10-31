@@ -29,8 +29,10 @@ class ReservationTests(unittest.TestCase):
         events=a.resolve(s,decisions)
         self.assertEqual(a.view(s)['alliances'],[])
         self.assertEqual(s['countries']['B']['conventional'],30)
-        self.assertEqual(events['public'][0]['round'],3)
-        self.assertEqual(events['public'][0]['type'],'alliance_ended')
+        self.assertEqual(events['public'],[])
+        ended=[event for event in events['private'] if event['type']=='alliance_ended_detail']
+        self.assertEqual(len(ended),1)
+        self.assertEqual(ended[0]['round'],3)
     def test_eligible_loan_keeps_lender_fighting_force(self):
         s=setup()
         decisions={'A':{'actions':[{'target_id':'C','action_id':'军事示威','conventional':20,'nuclear':0}]},'B':{'borrows':[{'from_id':'A','conventional':10}]}}

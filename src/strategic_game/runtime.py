@@ -7,8 +7,7 @@ from . import protocol as protocol, rules as rules, alliances as alliances, know
 DEFAULT_SCENARIO = str(Path(__file__).parent / 'scenarios' / 'three_states.json')
 
 def public_state(state):
-    return {**({'world_tags': copy.deepcopy(state['world_tags']), 'world_tag_knowledge': copy.deepcopy(state['world_tag_knowledge'])} if 'world_tags' in state else {}),
-            'round': state['round'], 'countries': {k: {'name': v['name'],
+    return {'round': state['round'], 'countries': {k: {'name': v['name'],
                 'strategic_culture': v['strategic_culture'],
                 'ideology_focus': v['ideology_focus'],
                 'economic_presence': v['economic_presence'], 'military_presence': v['military_presence'],

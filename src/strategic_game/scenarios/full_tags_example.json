@@ -17,13 +17,6 @@
       "alive": true,
       "profile": "维护自身安全和地区稳定。",
       "tags": {
-        "foreign_policy": "维持现状",
-        "war_aim": "安全",
-        "threat_perception": "中",
-        "comprehensive_power": "强国",
-        "power_c": 3,
-        "power_e": 4,
-        "strategic_will": 3,
         "stakeholders": {
           "allies": [
             "C2"
@@ -31,10 +24,6 @@
           "adversaries": [
             "C3"
           ]
-        },
-        "relative_geography": {
-          "C2": "两国接壤",
-          "C3": "两国隔海相望"
         }
       }
     },
@@ -73,10 +62,5 @@
   },
   "conflicts": {},
   "threat_history": {},
-  "nuclear_used": [],
-  "world_tags": {
-    "polarity": "多极",
-    "system_environment": "紧张/复杂",
-    "strategic_environment": "约束"
-  }
+  "nuclear_used": []
 }

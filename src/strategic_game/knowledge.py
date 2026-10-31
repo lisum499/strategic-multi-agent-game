@@ -113,8 +113,3 @@ def describe_tags(tags, dictionary, digest, country_ids=None, country_id=None):
     """Resolve only a country's explicitly configured tags; references remain private."""
     return _describe(tags, dictionary['dimensions'], dictionary, digest,
                      country_ids=country_ids, country_id=country_id)
-
-
-def describe_world_tags(tags, dictionary, digest):
-    """Resolve explicitly configured common environment tags for all countries."""
-    return _describe(tags, dictionary.get('world_dimensions', {}), dictionary, digest)

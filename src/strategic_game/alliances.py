@@ -68,6 +68,10 @@ def _active(state, a, b):
     return x if x and x.get('active') else None
 
 
+def _public(agreement):
+    return bool(agreement.get('public', False))
+
+
 def _emit(state, event, parties=(), public=False):
     ev = {'round': state['round'], **event}
     if public:
@@ -82,7 +86,8 @@ def _break(state, a, b, reason):
         return False
     agreement['active'] = False
     agreement['ended_round'] = state['round']
-    _emit(state, {'type': 'alliance_ended', 'countries': sorted([a, b]), 'reason': 'alliance_ended'}, public=True)
+    if _public(agreement):
+        _emit(state, {'type': 'alliance_ended', 'countries': sorted([a, b]), 'reason': 'alliance_ended'}, public=True)
     _emit(state, {'type': 'alliance_ended_detail', 'countries': sorted([a, b]), 'reason': reason}, (a, b))
     return True
 
@@ -90,9 +95,9 @@ def _break(state, a, b, reason):
 def _eligible(state, a, b, planned_conflicts=frozenset()):
     if a == b or not _alive(state, a) or not _alive(state, b) or _active(state, a, b) or _conflict(state, a, b) or frozenset((a, b)) in planned_conflicts:
         return False
-    # Invitation target must not publicly ally with anyone conflicting with sender.
+    # Only disclosed alliances constrain third-party eligibility.
     for ally in state['alliances'].values():
-        if not ally.get('active') or b not in (ally['a'], ally['b']):
+        if not ally.get('active') or not _public(ally) or b not in (ally['a'], ally['b']):
             continue
         other = ally['b'] if ally['a'] == b else ally['a']
         if _conflict(state, a, other) or frozenset((a, other)) in planned_conflicts:
@@ -104,7 +109,7 @@ def view(state, viewer=None):
     """Public relationships plus only viewer's private invitations and contracts."""
     alliances = state.get('alliances', {})
     public = [{'countries': sorted([x['a'], x['b']])}
-              for x in alliances.values() if x.get('active')]
+              for x in alliances.values() if x.get('active') and _public(x)]
     out = {'alliances': sorted(public, key=lambda x: x['countries']),
            'events': deepcopy(state.get('alliance_public_events', []))}
     if viewer is not None:
@@ -191,22 +196,12 @@ def resolve(state, decisions, config=None):
                 _failure(state, actor, 'respond', invitation['id'], '邀请方已无力履行承诺')
                 continue
             invitation['status'] = 'accepted'
-            agreement = {'id': _id(sender, actor), 'a': sender, 'b': actor, 'active': True,
+            agreement = {'id': _id(sender, actor), 'a': sender, 'b': actor, 'active': True, 'public': False,
                          'formed_round': round_no, 'offer': invitation['offer'],
                          'offer_return': invitation['offer_return'], 'request': amount,
                          'request_return': invitation['request_return'] if _positive(invitation['request']) else counter_return}
             state['alliances'][agreement['id']] = agreement
-            _emit(state, {'type': 'alliance_formed', 'countries': sorted([sender, actor])}, public=True)
             _emit(state, {'type': 'alliance_formed_detail', 'alliance_id': agreement['id']}, (sender, actor))
-            # A newly public alliance with an adversary ends affected old alliances.
-            for old in list(state['alliances'].values()):
-                if not old['active'] or old['id'] == agreement['id']:
-                    continue
-                for member, new_partner in ((sender, actor), (actor, sender)):
-                    if member in (old['a'], old['b']):
-                        prior = old['b'] if old['a'] == member else old['a']
-                        if _conflict(state, prior, new_partner) or frozenset((prior, new_partner)) in planned_conflicts:
-                            _break(state, member, prior, '新盟友与旧盟友处于冲突')
 
     for actor in ids:
         for item in decisions[actor].get('alliance_breaks', []):
@@ -247,6 +242,21 @@ def resolve(state, decisions, config=None):
                     'returned': {k: 0.0 for k in KINDS}, 'closed': False}
             state['alliance_loans'].append(loan)
             _emit(state, {'type': 'loan', **deepcopy(loan)}, (actor, lender))
+            outstanding_for_actor = {
+                k: sum((max(ZERO, _num(x[k]) - _num(x['returned'][k]))
+                        for x in state['alliance_loans']
+                        if x['alliance_id'] == agreement['id'] and x['from_id'] == lender
+                        and x['to_id'] == actor and not x.get('closed')), ZERO)
+                for k in KINDS
+            }
+            if not _public(agreement) and any(outstanding_for_actor[k] >= 1 for k in KINDS):
+                agreement['public'] = True
+                agreement['revealed_round'] = round_no
+                _emit(state, {'type': 'alliance_revealed',
+                              'countries': sorted([agreement['a'], agreement['b']])}, public=True)
+                _emit(state, {'type': 'alliance_revealed_detail',
+                              'alliance_id': agreement['id'], 'trigger': 'foreign_force_at_least_1'},
+                      (agreement['a'], agreement['b']))
 
     # Explicit repayment amount, and optional final settlement / non-return.
     for actor in ids:

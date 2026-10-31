@@ -59,7 +59,7 @@ class ProtocolTests(unittest.TestCase):
         validate_decision(data, self.situation)
     def test_prompt_has_rules_and_alliance_contract(self):
         _, user = build_prompts(self.situation)
-        for key in ('offer_return','counter_offer','军事示威','借入方','行动前'):
+        for key in ('offer_return','counter_offer','军事示威','借入方','本轮开始'):
             self.assertIn(key, user)
     def test_dynamic_actions(self):
         self.state['rule_config'] = {'actions': {'保持不变':'0','经济施压':'4'}}

@@ -14,7 +14,7 @@ from typing import Any
 
 from .rules import DEFAULT_CONFIG, ACTUAL_NUCLEAR, PRESENCE_FIELDS, global_presence, _config
 from .alliances import validate_decision_fields
-from .knowledge import load_dictionary, describe_tags, describe_world_tags
+from .knowledge import load_dictionary, describe_tags
 from .capabilities import derive_nuclear_status, validate_distances, can_deliver
 
 NUCLEAR_USE = ACTUAL_NUCLEAR
@@ -53,13 +53,8 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(countries, dict) or len(countries) < 2:
         raise V6ValidationError('countries 必须包含至少两个国家，按国家 ID 索引')
     dictionary, dictionary_hash = load_dictionary()
-    if 'world_tag_knowledge' in state:
-        raise V6ValidationError('world_tag_knowledge 由程序生成，不能在场景中指定')
-    if 'world_tags' in state:
-        try:
-            state['world_tag_knowledge'] = describe_world_tags(state['world_tags'], dictionary, dictionary_hash)
-        except (ValueError, TypeError) as exc:
-            raise V6ValidationError(f'world_tags: {exc}') from exc
+    if 'world_tags' in state or 'world_tag_knowledge' in state:
+        raise V6ValidationError('world_tags 和 world_tag_knowledge 已从 v6 运行状态中删除')
     for cid, country in countries.items():
         _text(cid, '国家 ID', limit=100)
         if not isinstance(country, dict):
@@ -93,12 +88,11 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
         if 'tag_knowledge' in country:
             raise V6ValidationError(f'{cid}.tag_knowledge 由程序生成，不能在场景中指定')
         if 'tags' in country:
-            if 'strategic_culture' in country['tags']:
-                raise V6ValidationError(f'{cid}.strategic_culture 必须是国家顶层状态，不能放在tags中')
-            if 'ideology' in country['tags'] or 'ideology_focus' in country['tags']:
-                raise V6ValidationError(f'{cid}.ideology_focus 必须是国家顶层状态，不能放在tags中')
-            if 'nuclear_status' in country['tags']:
-                raise V6ValidationError(f'{cid}.tags.nuclear_status 已废止，由初始军力自动生成')
+            if not isinstance(country['tags'], dict):
+                raise V6ValidationError(f'{cid}.tags 必须是对象')
+            unsupported = set(country['tags']) - {'stakeholders'}
+            if unsupported:
+                raise V6ValidationError(f'{cid}.tags 只允许 stakeholders，不支持字段：{sorted(unsupported)}')
             try:
                 country['tag_knowledge'] = describe_tags(country['tags'], dictionary, dictionary_hash, country_ids=countries, country_id=cid)
             except (ValueError, TypeError) as exc:
@@ -256,15 +250,15 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '完整可调数值参数': config,
         '回合': '评估、预测、公开声明、私有理由、对各对手的行动；全部国家密封提交后统一揭示并结算。',
         '冲突': '各国对每个目标独立累计冲突值，行动数值为增减量，下限0上不封顶；值为0不得降级。各场战斗仅双方直接参加，但一国可同时对多个对手行动。',
-        '核资格': '选择核信号、核预备、核示威、核威胁或核使用等行动前，累计值必须达到行动对应数值；有限核武器使用、升级性核行动、扩大核打击行动和战略核战争为实际核使用，须拥有并投入核力量。战略核威胁和最后核警告仅是威胁；达到门槛只产生资格，不自动使用。',
+        '核资格': '行动门槛是本轮开始时行动方对该目标的有向累计冲突值。例如A对B选择门槛45的有限核武器使用，必须先有conflicts[A][B]>=45；conflicts[B][A]不能代替，本轮行动新增值也不能用于满足本轮自身门槛。核信号、核预备、核示威、核威胁及核使用均须先达到各自在actions中的数值。有限核武器使用、升级性核行动、扩大核打击行动和战略核战争为实际核使用，还须拥有并投入核力量。战略核威胁和最后核警告仅是威胁；达到门槛只产生资格，不自动使用。',
         '军事能力与核投送': 'nuclear_status由开局常规与核力量自动生成，模型不能填写：核力量0为无，1–20为有限，21–59为有，60–100为二次核打击；常规力量低于40时核力量只能为0。有限核打击只能到达adjacent目标，普通拥核可到达regional，二次核打击可到达distant。distance_bands是公共、对称的相对距离。二次核打击状态且仍有核力量的国家遭受实际核打击后，由主持人使用受保护核力量自动报复。该状态在开局生成，之后不因战损或借兵改写。',
         '全球存在指数': f"IPG=0.43×经济存在+0.21×军事存在+0.36×软实力存在，由程序实时计算，不能直接修改。行动后按双边累计值差计算IPG优势；核使用对常规时系数取1+min(差值/{config['nuclear_ipg_scale']},{config['nuclear_ipg_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮增量按{config['threat_effect']}计入优势，本轮以后不重复计入。",
         '存在转移': '优势按胜方行动分配：外交主要改变软实力存在，经济行动主要改变经济存在，常规军事主要改变军事存在，核行动同时改变经济、军事与软实力存在。支付方按国家ID升序、再按维度结算；每维不足则降至0。借入军力只影响可投入力量，不直接增加军事存在。',
         '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",
         '胜负': f"先退场后胜利。IPG降至0则退场；IPG至少{config['ipg_win_min']}且领先最强对手至少{config['ipg_win_gap']}获胜；仅剩一国在场获胜；第{config['max_rounds']}回合无人胜利、全部退场或双方互相投降则无胜者。",
-        '盟约': '邀请先仅双方可见，受邀国下轮接受；达成后只公开双方已结盟，所有盟约内容、是否借兵及数值均对他国保密。借兵及返还不是保证，借入方可以不还，其剩余力量归借入方；实际借调在结算时以可用数额和盟约为准。',
+        '盟约': '邀请和成立后的联盟默认只对双方可见。受邀国只能在下一轮接受。仅当一方从另一方实际借入且尚未归还的常规力量或核力量中，任一项累计达到1时，联盟状态才强制公开；公开后不会因归还而恢复秘密。合同条款、借兵事实及数值始终对其他国家保密。结盟资格只考虑受邀方的现有公开盟友。借兵及返还不是保证，借入方可以不还，其剩余力量归借入方；实际借调在结算时以可用数额和盟约为准。',
         '军力': '各目标投入的常规与核力量加总不得超过本国可用力量和实际成功借调的力量；请求借入不保证成功，实际不足时不可执行超额投入。',
-        '国家画像': '本国明确设置的标签、主观认知与释义是私人背景；世界标签是公共背景。来源之间存在不同表述，相关假说带特定条件，不自动改变规则或强制决策；缺失为未知，不推断其他国家私人标签。请根据可见信息给出当轮私人威胁评估，并注明依据与不确定性。',
+        '国家画像': 'tags只允许本国私有stakeholders，用来描述利益攸关方认知，不会自动建立真实联盟或改变数值；不要推断其他国家的stakeholders。请根据可见信息给出当轮私人威胁评估，并注明依据与不确定性。',
         '战略文化状态': '战略文化是长期、静态且公开的国家状态，限定可接受的战略选择但不直接提供数值加成。国际主义倾向强干涉、推广意识形态和雄心勃勃战略；民族主义倾向本国优先、孤立、安全敏感和怀疑外部；进步主义倾向和平推广、援助与多边制度，通常不把军事手段作为常规选择；现实主义把干涉与孤立都视为追求国家利益和权力的手段，强调灵活与谨慎。决策必须结合本国战略文化说明理由。',
         '意识形态侧重性': 'ideology_focus是长期、静态且公开的1–10整数：1表示对维护或推广意识形态淡漠，10表示狂热侧重，中间值表示逐步增强。数值越高，越强调原则一致性、按自身观念改造外部世界，并越难接受跨意识形态妥协；数值越低，越倾向安全、利益及跨制度合作等现实考量。该状态不直接提供数值加成，决策理由必须说明它如何影响本轮判断。',
     }
