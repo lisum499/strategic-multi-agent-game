@@ -325,6 +325,7 @@ class StrategicGameApp(tk.Tk):
                                       f"局势预测：{decision.get('forecast','')}\n"
                                       f"公开声明：{decision.get('declaration','')}\n"
                                       f"行动：{json.dumps(decision.get('actions',[]), ensure_ascii=False)}\n"
+                                      f"外交提案与回应：{json.dumps({key: decision.get(key, []) for key in ('diplomatic_proposals','diplomatic_responses')}, ensure_ascii=False)}\n"
                                       f"联盟与借调：{json.dumps({key: decision.get(key, []) for key in ('alliance_invites','alliance_responses','alliance_breaks','borrows','loan_responses','returns')}, ensure_ascii=False)}\n"
                                       f"私人理由：{decision.get('rationale','')}\n"
                                       f"威胁评估：{decision.get('threat_assessment','')}")
