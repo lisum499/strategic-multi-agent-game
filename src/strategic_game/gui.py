@@ -37,7 +37,10 @@ def make_scenario(countries: dict, world_context: str, rounds: int) -> dict:
         "countries": copy.deepcopy(countries),
         "conflicts": {}, "threat_history": {}, "nuclear_used": [],
     }
-    return protocol.validate_scenario(scenario)
+    # Validate a copy because validation enriches countries with derived
+    # knowledge fields that are forbidden as user-authored scenario input.
+    protocol.validate_scenario(copy.deepcopy(scenario))
+    return scenario
 
 
 class QueueWriter:
@@ -267,7 +270,12 @@ class StrategicGameApp(tk.Tk):
         self._begin(args, provider, key, Path(selected), None)
 
     def _begin(self, args, provider, key, run_file, scenario_path):
-        env = os.environ.copy(); env["DEEPSEEK_API_KEY" if provider == "deepseek" else "OPENAI_API_KEY"] = key
+        env = os.environ.copy()
+        env["DEEPSEEK_API_KEY" if provider == "deepseek" else "OPENAI_API_KEY"] = key
+        # A frozen Windows child otherwise inherits the system GBK console
+        # encoding while this GUI consumes its pipe as UTF-8.
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
         self.run_file = run_file; self.seen_rounds = 0
         self._set_text(self.decisions, ""); self._set_text(self.world, ""); self._append_log(f"实验目录：{run_file.parent}\n")
         self.start_button.configure(state="disabled"); self.resume_button.configure(state="disabled"); self.stop_button.configure(state="normal")
