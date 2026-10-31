@@ -2,14 +2,29 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 MODEL="${MODEL:-deepseek-flash}"
 MAX_TOKENS="${MAX_TOKENS:-2800}"
 TIMEOUT="${TIMEOUT:-120}"
 RETRIES="${RETRIES:-3}"
 
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+  :
+elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+  PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+else
+  echo "找不到 Python 3。请安装 Python 3.11+，或设置 PYTHON_BIN。" >&2
+  exit 1
+fi
+
 if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "找不到 Python：$PYTHON_BIN。请先创建 .venv，或设置 PYTHON_BIN。" >&2
+  echo "PYTHON_BIN 不可执行：$PYTHON_BIN" >&2
+  exit 1
+fi
+
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+  echo "需要 Python 3.11 或以上版本：$PYTHON_BIN" >&2
   exit 1
 fi
 
