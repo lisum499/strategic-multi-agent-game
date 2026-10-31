@@ -19,6 +19,7 @@ ZERO = Decimal(0)
 DEFAULT_CONFIG = json.loads((Path(__file__).parent / 'scenarios' / 'rules.json').read_text(encoding='utf-8'))
 ACTION_LEVELS = DEFAULT_CONFIG['actions']
 ACTUAL_NUCLEAR = frozenset({'有限核武器使用', '升级性核行动', '扩大核打击行动', '战略核战争'})
+SECOND_STRIKE_TRIGGERS = frozenset({'升级性核行动', '扩大核打击行动', '战略核战争'})
 THREATS = frozenset({'战略核威胁', '最后核警告'})
 NUCLEAR_ACTIONS = ACTUAL_NUCLEAR | THREATS | frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁'})
 CONVENTIONAL_MILITARY = frozenset({'军事示威','有限军事试探','升级边境军事行动','常规军事施压','大规模常规军事行动','纵深常规打击','最大规模常规作战'})
@@ -209,7 +210,7 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     automatic_second_strikes = []
     incoming = {
         target: sorted(source for (source, dst), action in choices.items()
-                       if dst == target and action['action_id'] in ACTUAL_NUCLEAR)
+                       if dst == target and action['action_id'] in SECOND_STRIKE_TRIGGERS)
         for target in living_at_start
     }
     for defender in living_at_start:

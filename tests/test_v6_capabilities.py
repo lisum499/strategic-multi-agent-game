@@ -47,6 +47,24 @@ class CapabilityRulesTest(unittest.TestCase):
     def test_second_strike_is_automatic_and_audited(self):
         scenario = self.scenario()
         scenario['countries']['C1'].update({'conventional': 90, 'nuclear': 60})
+        scenario['conflicts'] = {'C2': {'C1': 57.5}}
+        state = protocol.validate_scenario(scenario)
+        state['round'] = 1
+        decisions = {cid: {'actions': []} for cid in state['countries']}
+        decisions['C2']['actions'] = [{
+            'target_id': 'C1', 'action_id': '升级性核行动',
+            'conventional': 0, 'nuclear': 1,
+        }]
+        _, record = rules.settle_round(state, decisions)
+        self.assertEqual(record['automatic_second_strikes'], [{
+            'source': 'C1', 'target': 'C2', 'action_id': '升级性核行动',
+            'nuclear': 15.0, 'replaced_action_id': None,
+        }])
+        self.assertEqual(record['pairs'][0]['actions']['C1'], '升级性核行动')
+
+    def test_limited_nuclear_use_does_not_trigger_second_strike(self):
+        scenario = self.scenario()
+        scenario['countries']['C1'].update({'conventional': 90, 'nuclear': 60})
         scenario['conflicts'] = {'C2': {'C1': 45}}
         state = protocol.validate_scenario(scenario)
         state['round'] = 1
@@ -55,12 +73,9 @@ class CapabilityRulesTest(unittest.TestCase):
             'target_id': 'C1', 'action_id': '有限核武器使用',
             'conventional': 0, 'nuclear': 1,
         }]
-        _, record = rules.settle_round(state, decisions)
-        self.assertEqual(record['automatic_second_strikes'], [{
-            'source': 'C1', 'target': 'C2', 'action_id': '有限核武器使用',
-            'nuclear': 15.0, 'replaced_action_id': None,
-        }])
-        self.assertEqual(record['pairs'][0]['actions']['C1'], '有限核武器使用')
+        new_state, record = rules.settle_round(state, decisions)
+        self.assertEqual(record['automatic_second_strikes'], [])
+        self.assertIn('C2', new_state['nuclear_used'])
 
     def test_distance_matrix_must_be_complete_and_symmetric(self):
         scenario = self.scenario()
