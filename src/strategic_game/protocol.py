@@ -262,7 +262,7 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '全球存在指数': f"IPG=0.43×经济存在+0.21×军事存在+0.36×软实力存在，由程序实时计算，不能直接修改。行动后按双边累计值差计算IPG优势；核使用对常规时系数取1+min(差值/{config['nuclear_ipg_scale']},{config['nuclear_ipg_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮增量按{config['threat_effect']}计入优势，本轮以后不重复计入。",
         '存在转移': '优势按胜方行动分配：外交主要改变软实力存在，经济行动主要改变经济存在，常规军事主要改变军事存在，核行动同时改变经济、军事与软实力存在。支付方按国家ID升序、再按维度结算；每维不足则降至0。借入军力只影响可投入力量，不直接增加军事存在。',
         '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",
-        '胜负': f"先退场后胜利。IPG降至0则退场；IPG至少{config['ipg_win_min']}且领先最强对手至少{config['ipg_win_gap']}获胜；仅剩一国在场获胜；第{config['max_rounds']}回合无人胜利、全部退场或双方互相投降则无胜者。",
+        '胜负': f"先退场后胜利。IPG降至0则退场；IPG至少{config['ipg_win_min']}且领先最强对手至少{config['ipg_win_gap']}获胜；仅剩一国在场获胜。若所有其他在场国家同轮都向同一国家完全投降，该国获胜；只剩两个在场国家且双方同轮互相完全投降时无胜者。部分国家投降不使任何国家退场。第{config['max_rounds']}回合无人胜利或全部退场时无胜者。",
         '盟约': '邀请和成立后的联盟默认只对双方可见。受邀国只能在下一轮接受。借调请求也跨轮处理：本轮borrows只创建请求，下一轮出借方用loan_responses接受或拒绝；未回应视为拒绝并终止盟约。借入方可用requires_loan_request_ids声明条件行动，但看不到出借方同轮回应。仅当一方从另一方实际借入且尚未归还的常规力量或核力量中，任一项累计达到1时，联盟强制公开；公开后不会恢复秘密。合同、请求、回应和数值对其他国家保密。',
         '军力': '新提出的借调请求不能支持当轮行动。各目标投入合计不得超过本国力量与本轮到期且被行动显式引用的请求之和；结算时只有请求被接受、盟约仍有效且出借方余额充足才转移。依赖失败只取消对应行动。',
         '国家画像': 'tags只允许本国私有stakeholders，用来描述利益攸关方认知，不会自动建立真实联盟或改变数值；不要推断其他国家的stakeholders。请根据可见信息给出当轮私人威胁评估，并注明依据与不确定性。',

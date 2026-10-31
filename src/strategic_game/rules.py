@@ -347,9 +347,12 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
             countries[cid][kind]=out(max(ZERO,number(countries[cid].get(kind,0))-combat_losses[cid][kind]))
     for a,b in mutual_nuclear:
         countries[a]['alive']=countries[b]['alive']=False
-    # Mutual surrender ends the match without a winner; other surrender requires unanimous surrender to one.
+    # Mutual surrender is a draw only when exactly two countries remain.
+    # Otherwise, surrender eliminates countries only when every other living
+    # country surrenders to the same target in this round.
+    two_country_mutual_surrender = len(living_at_start) == 2 and bool(mutual_surrender)
     surrender_winner=None
-    if not mutual_surrender:
+    if not two_country_mutual_surrender:
         for target in living_at_start:
             if all(choices.get((other,target),{}).get('action_id')=='完全投降' for other in living_at_start if other!=target):
                 surrender_winner=target
@@ -359,7 +362,7 @@ def settle_round(state: dict, decisions: dict, config: dict | None = None) -> tu
     alive=[cid for cid in living_at_start if countries[cid].get('alive',True)]
     _refresh_global_presence(countries, cfg)
     winner=None; reason=None
-    if mutual_surrender:
+    if two_country_mutual_surrender:
         reason='mutual_surrender'
     elif not alive:
         reason='all_eliminated'

@@ -99,6 +99,39 @@ class TestV6(unittest.TestCase):
         s=state(); s['round']=30
         n,_=r.settle_round(s,decision(('A','B')))
         self.assertEqual(n['outcome'],{'finished':True,'winner_id':None,'reason':'round_limit'})
+    def test_two_country_mutual_surrender_has_no_winner(self):
+        s=state()
+        s['conflicts']={'A':{'B':10},'B':{'A':10}}
+        d=decision(('A','B'),{
+            'A':[a('B','完全投降')],
+            'B':[a('A','完全投降')],
+        })
+        n,_=r.settle_round(s,d)
+        self.assertEqual(n['outcome'],{'finished':True,'winner_id':None,'reason':'mutual_surrender'})
+        self.assertTrue(n['countries']['A']['alive'])
+        self.assertTrue(n['countries']['B']['alive'])
+    def test_unanimous_surrender_to_one_country_makes_it_winner(self):
+        s=state(('A','B','C'))
+        s['conflicts']={'B':{'A':10},'C':{'A':10}}
+        d=decision(('A','B','C'),{
+            'B':[a('A','完全投降')],
+            'C':[a('A','完全投降')],
+        })
+        n,_=r.settle_round(s,d)
+        self.assertEqual(n['outcome'],{'finished':True,'winner_id':'A','reason':'last_country'})
+        self.assertTrue(n['countries']['A']['alive'])
+        self.assertFalse(n['countries']['B']['alive'])
+        self.assertFalse(n['countries']['C']['alive'])
+    def test_partial_or_multi_country_mutual_surrender_is_appeasement(self):
+        s=state(('A','B','C'))
+        s['conflicts']={'A':{'B':10},'B':{'A':10}}
+        d=decision(('A','B','C'),{
+            'A':[a('B','完全投降')],
+            'B':[a('A','完全投降')],
+        })
+        n,_=r.settle_round(s,d)
+        self.assertFalse(n['outcome']['finished'])
+        self.assertTrue(all(country['alive'] for country in n['countries'].values()))
     def test_multi_front_over_allocation_rejected(self):
         s=state(('A','B','C'))
         d=decision(('A','B','C'),{'A':[a('B','军事示威',15),a('C','军事示威',15)]})
