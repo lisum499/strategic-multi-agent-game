@@ -4,7 +4,7 @@
 
 ## 安装和离线运行
 
-需要 Python 3.11 或以上：
+需要 Python 3.10 或以上：
 
 ```bash
 python3 -m venv .venv

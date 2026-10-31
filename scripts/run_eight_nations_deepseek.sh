@@ -23,8 +23,8 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 1
 fi
 
-if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
-  echo "需要 Python 3.11 或以上版本：$PYTHON_BIN" >&2
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
+  echo "需要 Python 3.10 或以上版本：$PYTHON_BIN" >&2
   exit 1
 fi
 
