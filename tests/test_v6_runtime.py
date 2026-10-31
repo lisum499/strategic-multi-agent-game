@@ -74,7 +74,7 @@ class V6RuntimeTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_SECRET',json.dumps(view))
         self.assertNotIn('HIDDEN_SECRET',json.dumps(view))
         self.assertNotIn('conventional',view['state']['countries']['C2'])
-        self.assertNotIn('nuclear',view['state']['countries']['C2'])
+        self.assertEqual(view['state']['countries']['C2']['nuclear'],state['countries']['C2']['nuclear'])
 
 if __name__ == '__main__': unittest.main()
 

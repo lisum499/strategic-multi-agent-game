@@ -8,7 +8,7 @@ class ProtocolTests(unittest.TestCase):
     def setUp(self):
         self.raw_state = {'rules_version': 'v6.0', 'round': 1,
             'countries': {'A': {'name': 'A', 'strategic_culture': '现实主义', 'ideology_focus': 2, 'region': 'region_1', 'economic_presence': 50, 'military_presence': 50,
-                                'soft_presence': 50, 'conventional': 80, 'nuclear': 21},
+                                'soft_presence': 50, 'conventional': 80, 'nuclear': 41},
                           'B': {'name': 'B', 'strategic_culture': '民族主义', 'ideology_focus': 4, 'region': 'region_1', 'economic_presence': 50, 'military_presence': 50,
                                 'soft_presence': 50, 'conventional': 60, 'nuclear': 0}},
             'conflicts': {'A': {'B': 45}}, 'nuclear_used': []}
@@ -16,7 +16,7 @@ class ProtocolTests(unittest.TestCase):
         self.state['round'] = 1
         self.situation = {'round': 1, 'country_id': 'A', 'snapshot_hash': 'hash', 'state': self.state}
     def test_scenario_version_and_initial_nuclear(self):
-        self.assertEqual(self.state['countries']['A']['nuclear_status'], '有')
+        self.assertNotIn('nuclear_status', self.state['countries']['A'])
         bad = copy.deepcopy(self.raw_state); bad['countries']['B'].update({'conventional': 39, 'nuclear': 1})
         with self.assertRaises(V6ValidationError): validate_scenario(bad)
         bad = copy.deepcopy(self.raw_state); bad['countries']['A']['conventional'] = 39

@@ -11,9 +11,9 @@ def public_state(state):
                 'strategic_culture': v['strategic_culture'],
                 'ideology_focus': v['ideology_focus'],
                 'region': v['region'],
+                'nuclear': v['nuclear'],
                 'economic_presence': v['economic_presence'], 'military_presence': v['military_presence'],
                 'soft_presence': v['soft_presence'], 'global_presence': v['global_presence'],
-                'nuclear_status': v['nuclear_status'],
                 'alive': v['alive']} for k,v in state['countries'].items()},
             'conflicts': copy.deepcopy(state.get('conflicts', {})), 'nuclear_used': copy.deepcopy(state.get('nuclear_used', [])),
             'alliances': alliances.view(state)}
