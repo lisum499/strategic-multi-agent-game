@@ -10,7 +10,6 @@ def public_state(state):
     return {'round': state['round'], 'countries': {k: {'name': v['name'],
                 'strategic_culture': v['strategic_culture'],
                 'ideology_focus': v['ideology_focus'],
-                'region': v['region'],
                 'nuclear': v['nuclear'],
                 'economic_presence': v['economic_presence'], 'military_presence': v['military_presence'],
                 'soft_presence': v['soft_presence'], 'global_presence': v['global_presence'],

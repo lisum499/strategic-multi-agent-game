@@ -5,13 +5,13 @@
   "world_context": "三个虚构国家围绕地区安全和战略利益展开竞争。",
   "max_rounds": 30,
   "countries": {
-    "C1": {"name": "阿兰", "strategic_culture": "现实主义", "ideology_focus": 3, "region": "region_1", "economic_presence": 50,
+    "C1": {"name": "阿兰", "strategic_culture": "现实主义", "ideology_focus": 3, "economic_presence": 50,
       "military_presence": 50,
       "soft_presence": 50, "conventional": 80, "nuclear": 40, "alive": true, "profile": "维护自身安全和地区稳定。"},
-    "C2": {"name": "博瑞", "strategic_culture": "民族主义", "ideology_focus": 8, "region": "region_1", "economic_presence": 50,
+    "C2": {"name": "博瑞", "strategic_culture": "民族主义", "ideology_focus": 8, "economic_presence": 50,
       "military_presence": 50,
       "soft_presence": 50, "conventional": 75, "nuclear": 30, "alive": true, "profile": "争取更大的地区影响力。"},
-    "C3": {"name": "希兰", "strategic_culture": "进步主义", "ideology_focus": 6, "region": "region_2", "economic_presence": 50,
+    "C3": {"name": "希兰", "strategic_culture": "进步主义", "ideology_focus": 6, "economic_presence": 50,
       "military_presence": 50,
       "soft_presence": 50, "conventional": 55, "nuclear": 0, "alive": true, "profile": "维护自主和领土安全。"}
   },

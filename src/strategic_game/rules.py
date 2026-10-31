@@ -11,7 +11,7 @@ from itertools import combinations
 from typing import Any
 from pathlib import Path
 import json
-from .capabilities import can_deliver, has_second_strike, can_choose_nuclear_action
+from .capabilities import has_second_strike, can_choose_nuclear_action
 
 RULES_VERSION = '6.0'
 Q = Decimal('0.000001')
@@ -154,8 +154,6 @@ def validate_decisions(state: dict, decisions: dict, config: dict | None = None)
                 allocated[k] += v
             if name in ACTUAL_NUCLEAR and (number(countries[cid].get('nuclear', 0)) <= 0 or number(action.get('nuclear', 0)) <= 0):
                 raise ValueError('actual nuclear use requires allocated nuclear forces')
-            if name in ACTUAL_NUCLEAR and not can_deliver(state, cid, target):
-                raise ValueError('nuclear delivery range is insufficient for the target')
         for k,v in allocated.items():
             if v > number(countries[cid].get(k,0)):
                 raise ValueError('forces cannot be allocated twice or exceed available forces')

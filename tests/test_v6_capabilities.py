@@ -20,22 +20,18 @@ class CapabilityRulesTest(unittest.TestCase):
         state = protocol.validate_scenario(scenario)
         self.assertNotIn('nuclear_status', state['countries']['C1'])
 
-    def test_delivery_range_filters_actual_nuclear_use(self):
+    def test_actual_nuclear_use_has_no_geographic_filter(self):
         scenario = self.scenario()
         scenario['countries']['C1'].update({'nuclear': 40})
         scenario['conflicts'] = {'C1': {'C2': 45, 'C3': 45}}
         state = protocol.validate_scenario(scenario)
         self.assertNotIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C2')})
         self.assertNotIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C3')})
-        self.assertTrue(capabilities.can_deliver(state, 'C1', 'C2'))
-        self.assertFalse(capabilities.can_deliver(state, 'C1', 'C3'))
-
         scenario = self.scenario()
         scenario['countries']['C1'].update({'nuclear': 41})
         scenario['conflicts'] = {'C1': {'C3': 45}}
         state = protocol.validate_scenario(scenario)
         self.assertIn('有限核武器使用', {x['action_id'] for x in protocol.legal_actions(state, 'C1', 'C3')})
-        self.assertTrue(capabilities.can_deliver(state, 'C1', 'C3'))
 
     def test_current_nuclear_limits_action_levels(self):
         expected = (
@@ -101,13 +97,9 @@ class CapabilityRulesTest(unittest.TestCase):
         self.assertEqual(record['automatic_second_strikes'], [])
         self.assertIn('C2', new_state['nuclear_used'])
 
-    def test_region_is_required_and_distance_matrix_is_rejected(self):
+    def test_removed_geography_fields_are_rejected(self):
         scenario = self.scenario()
-        del scenario['countries']['C1']['region']
-        with self.assertRaises(protocol.V6ValidationError):
-            protocol.validate_scenario(scenario)
-        scenario = self.scenario()
-        scenario['countries']['C1']['region'] = 'region_5'
+        scenario['countries']['C1']['region'] = 'region_1'
         with self.assertRaises(protocol.V6ValidationError):
             protocol.validate_scenario(scenario)
         scenario = self.scenario()

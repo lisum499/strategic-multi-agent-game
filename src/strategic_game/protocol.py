@@ -15,7 +15,7 @@ from typing import Any
 from .rules import DEFAULT_CONFIG, ACTUAL_NUCLEAR, PRESENCE_FIELDS, global_presence, _config
 from .alliances import validate_decision_fields
 from .knowledge import load_dictionary, describe_tags
-from .capabilities import validate_regions, can_deliver, can_choose_nuclear_action
+from .capabilities import can_choose_nuclear_action
 
 NUCLEAR_USE = ACTUAL_NUCLEAR
 NUCLEAR_ACTIONS = frozenset({'核信号释放', '核军事预备', '核武器示威', '核威胁', *ACTUAL_NUCLEAR, '战略核威胁', '最后核警告'})
@@ -73,6 +73,8 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
             raise V6ValidationError(f'{cid}.ideology_focus_knowledge 由程序生成，不能在场景中指定')
         if 'nuclear_status' in country or 'nuclear_status_knowledge' in country:
             raise V6ValidationError(f'{cid}.nuclear_status 已删除，核权限直接由当前 nuclear 决定')
+        if 'region' in country:
+            raise V6ValidationError(f'{cid}.region 已从系统删除')
         if 'territory' in country or 'global_presence' in country:
             raise V6ValidationError(f'{cid} 不得设置旧 territory 或派生字段 global_presence')
         for k in (*PRESENCE_FIELDS, 'conventional', 'nuclear'):
@@ -120,10 +122,8 @@ def validate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     state.setdefault('max_rounds', 30)
     if not isinstance(state['max_rounds'], int) or isinstance(state['max_rounds'], bool) or not 1 <= state['max_rounds'] <= 30:
         raise V6ValidationError('max_rounds 必须是1至30的整数')
-    try:
-        validate_regions(state)
-    except ValueError as exc:
-        raise V6ValidationError(str(exc)) from exc
+    if 'distance_bands' in state:
+        raise V6ValidationError('distance_bands 已从系统删除')
     return state
 
 
@@ -147,8 +147,6 @@ def legal_actions(state: dict[str, Any], country_id: str, target_id: str, *, pen
             continue
         if name in NUCLEAR_USE:
             if float(countries[country_id]['nuclear']) + pending_nuclear <= 0:
-                continue
-            if not can_deliver(state, country_id, target_id):
                 continue
         options.append({'action_id': name, 'delta': delta})
     return options
@@ -260,7 +258,7 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         '回合': '评估、预测、公开声明、私有理由、对各对手的行动；全部国家密封提交后统一揭示并结算。',
         '冲突': '各国对每个目标独立累计冲突值，行动数值为增减量，下限0上不封顶；值为0不得降级。各场战斗仅双方直接参加，但一国可同时对多个对手行动。',
         '核资格': '行动门槛是本轮开始时行动方对该目标的有向累计冲突值。例如A对B选择门槛45的有限核武器使用，必须先有conflicts[A][B]>=45；conflicts[B][A]不能代替，本轮行动新增值也不能用于满足本轮自身门槛。核信号、核预备、核示威、核威胁及核使用均须先达到各自在actions中的数值。有限核武器使用、升级性核行动、扩大核打击行动和战略核战争为实际核使用，还须拥有并投入核力量。战略核威胁和最后核警告仅是威胁；达到门槛只产生资格，不自动使用。',
-        '军事能力与核投送': '系统没有nuclear_status，当前公开nuclear直接决定权限并随借调、归还和战损动态变化。nuclear=0不能选择核行动；1–40只能选择门槛值低于45.0的核行动，实际核打击仅限同区域；nuclear>=41可以选择所有核行动、跨区域实际核打击并具备自动二次打击。region固定公开，只能是region_1至region_4。开局常规力量低于40时核力量必须为0，但回合中常规力量变化不会自动增加nuclear。具备二次打击的国家遭受升级性核行动、扩大核打击行动或战略核战争时，由主持人使用受保护核力量自动报复；有限核武器使用不触发自动二次打击。',
+        '军事能力与核行动': '系统没有nuclear_status和region，当前公开nuclear直接决定权限并随借调、归还和战损动态变化。nuclear=0不能选择核行动；1–40只能选择门槛值低于45.0的核行动；nuclear>=41可以选择所有核行动并具备自动二次打击。核行动不检查地理范围。开局常规力量低于40时核力量必须为0，但回合中常规力量变化不会自动增加nuclear。具备二次打击的国家遭受升级性核行动、扩大核打击行动或战略核战争时，由主持人使用受保护核力量自动报复；有限核武器使用不触发自动二次打击。',
         '全球存在指数': f"IPG=0.43×经济存在+0.21×军事存在+0.36×软实力存在，由程序实时计算，不能直接修改。行动后按双边累计值差计算IPG优势；核使用对常规时系数取1+min(差值/{config['nuclear_ipg_scale']},{config['nuclear_ipg_max_bonus']})。战略核威胁和最后核警告在发生真实核使用之前，仅将本轮增量按{config['threat_effect']}计入优势，本轮以后不重复计入。",
         '存在转移': '优势按胜方行动分配：外交主要改变软实力存在，经济行动主要改变经济存在，常规军事主要改变军事存在，核行动同时改变经济、军事与软实力存在。支付方按国家ID升序、再按维度结算；每维不足则降至0。借入军力只影响可投入力量，不直接增加军事存在。',
         '战损': f"如果本轮无人选择军事示威、常规军事行动或实际核使用，则无战损。常规I=min((行动后双方累计值之和)/{config['conventional_intensity_divisor']},1)，常规投入损失基础率{config['conventional_loss_rate']}×I；发生实际核使用时I=min((双方累计值之和)/{config['nuclear_intensity_divisor']},1)，损耗比例按nuclear_loss_tiers配置，乘I和力量倍率。力量倍率为sqrt((对手常规投入+{config['capability_offset']})/(己方常规投入+{config['capability_offset']}))，范围{config['capability_min']}–{config['capability_max']}，损失不超过可用力量。",
