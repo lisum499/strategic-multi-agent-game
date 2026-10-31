@@ -72,4 +72,15 @@ class ProtocolTests(unittest.TestCase):
         result = legal_actions(self.state, 'A', 'B')
         self.assertEqual(result, [{'action_id':'保持不变','delta':0.0},{'action_id':'经济施压','delta':4.0}])
 
+    def test_missing_operation_array_is_normalized_to_empty(self):
+        data = make_fallback(self.situation)
+        del data['returns']
+        normalized = validate_decision(data, self.situation)
+        self.assertEqual(normalized['returns'], [])
+
+    def test_prompt_emphasizes_unique_targets_and_complete_arrays(self):
+        _, user = build_prompts(self.situation)
+        self.assertIn('同一个target_id最多出现一次', user)
+        self.assertIn('对应字段必须输出空数组', user)
+
 if __name__ == '__main__': unittest.main()

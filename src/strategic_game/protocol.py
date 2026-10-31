@@ -173,6 +173,13 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
         raise V6ValidationError('决策必须是合法 JSON') from None
     if not isinstance(data, dict):
         raise V6ValidationError('决策必须是对象')
+    # Missing operation arrays have one unambiguous meaning: no operation.
+    # The raw model response remains in the call audit record; the normalized
+    # decision is what enters validation and settlement.
+    operation_arrays = ('alliance_invites','alliance_responses','alliance_breaks',
+                        'borrows','loan_responses','returns')
+    for key in operation_arrays:
+        data.setdefault(key, [])
     required = {'round','country_id','snapshot_hash','assessment','forecast','declaration',
                 'rationale','threat_assessment','actions','alliance_invites','alliance_responses',
                 'alliance_breaks','borrows','loan_responses','returns'}
@@ -222,7 +229,7 @@ def validate_decision(data: str | dict[str, Any], situation: dict[str, Any]) -> 
         nuclear += _number(action['nuclear'], 'nuclear')
         if action['action_id'] in NUCLEAR_USE and action['nuclear'] <= 0:
             raise V6ValidationError('实际核使用须投入大于零的核力量')
-    for k in ('alliance_invites','alliance_responses','alliance_breaks','borrows','loan_responses','returns'):
+    for k in operation_arrays:
         if not isinstance(data[k], list):
             raise V6ValidationError(f'{k} 必须是数组')
     own = state['countries'][country]
@@ -287,9 +294,16 @@ def build_prompts(situation: dict[str, Any]) -> tuple[str, str]:
         'loan_responses': [{'request_id': '本轮到期且由本国出借的请求ID', 'accept': True}],
         'returns': [{'to_id': '盟国ID', **amounts, 'close': False}],
     }
+    output_constraints = {
+        '完整对象': '必须输出模板中的全部顶层字段。没有联盟、借调或归还操作时，对应字段必须输出空数组[]。',
+        '单一最终行动': 'actions中同一个target_id最多出现一次。不要为同一目标列出备选方案，只保留最终选择。',
+        '空行动': '不对任何国家行动时输出actions:[]。不要用多条行动表达计划、阶段或条件。',
+        '格式': '仅输出一个合法JSON对象，不要Markdown代码块、注释或JSON外文本。',
+    }
     return system, ('以下是本国轮初可见信息：\n' + _canonical(situation)
                     + '\n本局规则：\n' + _canonical(rules)
-                    + '\n字段和格式如下，各数组可为空；不得添加字段：\n' + _canonical(schema))
+                    + '\n字段和格式如下，各数组可为空；不得添加字段：\n' + _canonical(schema)
+                    + '\n输出硬性约束：\n' + _canonical(output_constraints))
 
 
 def make_fallback(situation: dict[str, Any]) -> dict[str, Any]:

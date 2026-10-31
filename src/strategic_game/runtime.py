@@ -47,7 +47,12 @@ def decisions_for(state, provider, history, config, retries=3, no_prompts=False,
         system, user = protocol.build_prompts(situation)
         last = None
         for attempt in range(retries + 1):
-            actual_user = user + (f'\n上次错误：{last}' if last else '')
+            actual_user = user
+            if last:
+                actual_user += ('\n上次输出未通过校验：' + last
+                                + '\n请重新输出完整JSON对象，不要只返回修正字段。'
+                                  '确保六个联盟/借调操作数组全部存在；actions中每个target_id最多出现一次，'
+                                  '同一目标的备选行动必须删除，只保留最终选择。')
             call = {'round': state['round'], 'country_id': cid, 'attempt': attempt + 1,
                     'status': 'started', 'error': None,
                     **({} if no_prompts else {'system': system, 'user': actual_user})}
