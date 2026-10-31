@@ -83,14 +83,17 @@ def decisions_for(state, provider, history, config, retries=3, no_prompts=False,
                 call['response'] = response
                 decision = protocol.validate_decision(response, situation)
                 alliances.validate_decision_fields(decision)
-                call.update({'status': 'completed', 'provider_info': copy.deepcopy(provider.last_call_info)})
-                if on_call is not None: on_call()
-                decisions[cid] = decision
-                break
             except Exception as exc:
                 last = str(exc)[:500] if isinstance(exc, (ValueError, protocol.V6ValidationError)) else type(exc).__name__
                 call.update({'status': 'failed', 'error': last, 'provider_info': copy.deepcopy(provider.last_call_info)})
                 if on_call is not None: on_call()
+            else:
+                call.update({'status': 'completed', 'provider_info': copy.deepcopy(provider.last_call_info)})
+                # Storage/UI callback failures are infrastructure errors, not
+                # invalid model attempts, and must propagate to the runner.
+                if on_call is not None: on_call()
+                decisions[cid] = decision
+                break
         else:
             fallback += 1
             decisions[cid] = protocol.make_fallback(situation)

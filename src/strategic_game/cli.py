@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -28,7 +29,17 @@ def _atomic_write(path: Path, content: str) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temp_path, path)
+        # Windows denies replacement while the GUI has run.json open for its
+        # live view. The read is brief, so bounded backoff preserves atomicity.
+        for attempt in range(8):
+            try:
+                os.replace(temp_path, path)
+                temp_path = None
+                break
+            except PermissionError as exc:
+                if attempt == 7:
+                    raise PermissionError(f"保存运行记录失败，文件仍被占用：{path}") from exc
+                time.sleep(0.025 * (2 ** attempt))
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
@@ -143,7 +154,7 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         data["run_status"] = "interrupted"; data["error_type"] = "KeyboardInterrupt"
     except Exception as exc:
-        data["run_status"] = "failed"; data["error_type"] = type(exc).__name__; data["error_message"] = str(exc)[:500] if isinstance(exc, ValueError) else ""
+        data["run_status"] = "failed"; data["error_type"] = type(exc).__name__; data["error_message"] = str(exc)[:500] if isinstance(exc, (ValueError, OSError)) else ""
     save()
     if data["run_status"] in ("completed", "completed_with_errors"):
         md, page = runtime.reports(data)

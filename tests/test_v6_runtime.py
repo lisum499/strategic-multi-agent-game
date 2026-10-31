@@ -4,6 +4,22 @@ from unittest.mock import patch
 from strategic_game import cli, runtime as v, protocol as p
 
 class V6RuntimeTests(unittest.TestCase):
+    def test_atomic_checkpoint_retries_transient_windows_file_lock(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'run.json'
+            real_replace=__import__('os').replace
+            attempts={'count':0}
+            def flaky_replace(source,target):
+                attempts['count']+=1
+                if attempts['count'] < 3:
+                    raise PermissionError('temporarily locked')
+                return real_replace(source,target)
+            with patch('strategic_game.cli.os.replace',side_effect=flaky_replace), \
+                    patch('strategic_game.cli.time.sleep'):
+                cli._atomic_write(path,'{"ok": true}')
+            self.assertEqual(attempts['count'],3)
+            self.assertEqual(json.loads(path.read_text()),{'ok':True})
+
     def test_complete_record_public_and_replay(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d)/'run'
