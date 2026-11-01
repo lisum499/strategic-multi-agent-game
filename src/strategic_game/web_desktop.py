@@ -36,6 +36,9 @@ class DesktopApi:
         self.scenario_path = None
         self.logs = []
         self._lock = threading.Lock()
+        self._view_cache = None
+        self._view_revision = 0
+        self._status_revision = 0
 
     def get_config(self):
         scenario_path = Path(__file__).parent / "scenarios" / "eight_nations_dawn_strait.json"
@@ -49,7 +52,8 @@ class DesktopApi:
         if not self.run_file or not self.run_file.exists():
             return None
         try:
-            data = json.loads(self.run_file.read_text(encoding="utf-8"))
+            live_file = self.run_file.with_name("live.json")
+            data = json.loads((live_file if live_file.exists() else self.run_file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
         return {"run_status": data.get("run_status"), "result": data.get("result"),
@@ -57,13 +61,25 @@ class DesktopApi:
                 "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public")}
                            for row in data.get("rounds", [])]}
 
+    def _refresh_view(self):
+        view = self._view()
+        with self._lock:
+            self._view_cache = view
+            self._view_revision += 1
+            self._status_revision += 1
+
+    def get_run_view(self):
+        with self._lock:
+            return copy.deepcopy(self._view_cache)
+
     def get_status(self):
         with self._lock:
             running = self.process is not None and self.process.poll() is None
             code = None if running or self.process is None else self.process.returncode
             status = "运行中" if running else ("就绪" if self.process is None else ("已完成" if code == 0 else "已停止"))
-            return {"running": running, "status": status, "logs": self.logs[-1200:],
-                    "run_file": str(self.run_file) if self.run_file else None, "data": self._view()}
+            return {"running": running, "status": status, "logs": self.logs[-300:],
+                    "run_file": str(self.run_file) if self.run_file else None,
+                    "revision": self._status_revision, "view_revision": self._view_revision}
 
     def _command(self, args):
         return [sys.executable, "--cli-worker", *args] if getattr(sys, "frozen", False) else [sys.executable, "-m", "strategic_game.cli", *args]
@@ -73,21 +89,30 @@ class DesktopApi:
         env["DEEPSEEK_API_KEY" if provider == "deepseek" else "OPENAI_API_KEY"] = api_key
         env.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        self.process = subprocess.Popen(self._command(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        text=True, encoding="utf-8", errors="replace", env=env,
-                                        creationflags=flags, bufsize=1)
-        threading.Thread(target=self._consume, daemon=True).start()
+        process = subprocess.Popen(self._command(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace", env=env,
+                                   creationflags=flags, bufsize=1)
+        self.process = process
+        scenario_path = self.scenario_path
+        threading.Thread(target=self._consume, args=(process, scenario_path), daemon=True).start()
 
-    def _consume(self):
+    def _consume(self, process, scenario_path):
         try:
-            for line in self.process.stdout:
+            for line in process.stdout:
                 with self._lock:
                     self.logs.append(line)
+                    if len(self.logs) > 500:
+                        del self.logs[:-500]
+                    self._status_revision += 1
+                if "结算完成；下一状态" in line:
+                    self._refresh_view()
         finally:
-            self.process.wait()
-            if self.scenario_path:
-                Path(self.scenario_path).unlink(missing_ok=True)
-                self.scenario_path = None
+            process.wait()
+            self._refresh_view()
+            if scenario_path:
+                Path(scenario_path).unlink(missing_ok=True)
+                if self.scenario_path == scenario_path:
+                    self.scenario_path = None
 
     def start_run(self, payload):
         if self.process is not None and self.process.poll() is None:
@@ -117,6 +142,9 @@ class DesktopApi:
             args += ["--base-url", base_url]
         with self._lock:
             self.logs = []
+            self._view_cache = None
+            self._view_revision += 1
+            self._status_revision += 1
         self._launch(args, provider, key)
         return self.get_status()
 
@@ -131,8 +159,10 @@ class DesktopApi:
         if provider == "openai":
             args += ["--base-url", payload.get("base_url", "")]
         self.run_file = path
+        self._refresh_view()
         with self._lock:
             self.logs = []
+            self._status_revision += 1
         self._launch(args, provider, key)
         return self.get_status()
 

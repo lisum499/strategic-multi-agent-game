@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from strategic_game.web_desktop import DesktopApi, _clean_countries, _frontend_path
 
@@ -18,6 +21,18 @@ class WebDesktopTests(unittest.TestCase):
         api = DesktopApi()
         self.assertNotIn("api_key", api.get_config())
         self.assertNotIn("api_key", api.get_status())
+
+    def test_status_is_lightweight_and_run_view_is_revisioned(self):
+        api = DesktopApi()
+        with tempfile.TemporaryDirectory() as folder:
+            api.run_file = Path(folder) / "run.json"
+            api.run_file.write_text(json.dumps({"run_status":"running", "initial_state":{"countries":{}},
+                                                "rounds":[{"round":1,"decisions":{},"state":{}}]}), encoding="utf-8")
+            api._refresh_view()
+            status = api.get_status()
+            self.assertNotIn("data", status)
+            self.assertEqual(status["view_revision"], 1)
+            self.assertEqual(api.get_run_view()["rounds"][0]["round"], 1)
 
 
 if __name__ == "__main__":

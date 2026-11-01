@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Activity, Bot, ChevronDown, ChevronRight, CircleStop, FileClock, Globe2, Play, Plus, RotateCcw, Settings2, Shield, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, Bot, ChevronDown, ChevronRight, CircleStop, FileClock, Globe2, Play, Plus, Settings2, Shield, Trash2 } from 'lucide-react';
 
 type Country = {name:string; strategic_culture:string; ideology_focus:number; economic_presence:number; military_presence:number; soft_presence:number; conventional:number; nuclear:number; profile?:string; alive?:boolean};
 type Config = {countries:Record<string,Country>; world_context:string; rounds:number; provider:string; model:string; base_url:string; output_parent:string};
-type Status = {running:boolean; status:string; logs:string[]; run_file?:string; data?:any; error?:string};
+type Status = {running:boolean; status:string; logs:string[]; run_file?:string; data?:any; error?:string; revision?:number; view_revision?:number};
 
 const api = async (name:string, ...args:any[]) => {
   if (!window.pywebview?.api?.[name]) throw new Error('桌面桥接尚未就绪');
@@ -29,11 +29,13 @@ function Op({title,rows}:{title:string;rows:string[]}){return <section className
 export function App(){
   const [config,setConfig]=useState<Config|null>(null),[state,setState]=useState<Status>({running:false,status:'loading',logs:[]});
   const [tab,setTab]=useState<'run'|'countries'|'settings'>('run'),[round,setRound]=useState(0),[country,setCountry]=useState('all'),[apiKey,setApiKey]=useState('');
-  useEffect(()=>{const boot=async()=>{for(let i=0;i<30&&!window.pywebview?.api;i++)await new Promise(r=>setTimeout(r,100));setConfig(await api('get_config'));setState(await api('get_status'))};boot().catch(e=>setState(s=>({...s,error:String(e)})))},[]);
-  useEffect(()=>{const timer=setInterval(()=>api('get_status').then((x:Status)=>setState(x)).catch(()=>{}),600);return()=>clearInterval(timer)},[]);
+  const statusRevision=useRef(-1),viewRevision=useRef(-1),runData=useRef<any>(null);
+  const applyStatus=async(x:Status)=>{if((x.revision??0)===statusRevision.current)return;statusRevision.current=x.revision??0;if((x.view_revision??0)!==viewRevision.current){viewRevision.current=x.view_revision??0;runData.current=await api('get_run_view')}setState({...x,data:runData.current})};
+  useEffect(()=>{const boot=async()=>{for(let i=0;i<30&&!window.pywebview?.api;i++)await new Promise(r=>setTimeout(r,100));setConfig(await api('get_config'));await applyStatus(await api('get_status'))};boot().catch(e=>setState(s=>({...s,error:String(e)})))},[]);
+  useEffect(()=>{const timer=setInterval(()=>api('get_status').then(applyStatus).catch(()=>{}),800);return()=>clearInterval(timer)},[]);
   const data=state.data, rounds=data?.rounds||[], selected=rounds.find((x:any)=>x.round===round)||rounds.at(-1), names=useMemo(()=>Object.fromEntries(Object.entries(config?.countries||{}).map(([k,v])=>[k,v.name])),[config]);
-  const start=async()=>{if(!config)return;setState(await api('start_run',{...config,api_key:apiKey}))};
-  const resume=async()=>setState(await api('resume_run',{provider:config?.provider,model:config?.model,base_url:config?.base_url,api_key:apiKey}));
+  const start=async()=>{if(!config)return;await applyStatus(await api('start_run',{...config,api_key:apiKey}))};
+  const resume=async()=>applyStatus(await api('resume_run',{provider:config?.provider,model:config?.model,base_url:config?.base_url,api_key:apiKey}));
   if(!config)return <div className="splash"><Bot/><span>{state.error||'正在连接推演引擎…'}</span></div>;
   return <div className="app"><aside><div className="brand"><div className="mark"><Shield/></div><div><strong>STRATEGIC</strong><span>推演工作台</span></div></div>
     <nav><button className={tab==='run'?'active':''} onClick={()=>setTab('run')}><Activity/>推演</button><button className={tab==='countries'?'active':''} onClick={()=>setTab('countries')}><Globe2/>国家</button><button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}><Settings2/>设置</button></nav>

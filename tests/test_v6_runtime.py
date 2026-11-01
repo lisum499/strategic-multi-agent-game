@@ -26,7 +26,10 @@ class V6RuntimeTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.main(['run','--provider','mock','--rounds','3','--out',str(out)]),0)
             data=json.loads((out/'run.json').read_text())
+            live=json.loads((out/'live.json').read_text())
             self.assertEqual(data['rules_version'],'v6.0')
+            self.assertEqual(len(live['rounds']),3)
+            self.assertNotIn('records',live)
             self.assertEqual(len(data['rounds']),3)
             self.assertTrue(data['rounds'][0]['state_changes'])
             self.assertTrue(v.replay(data)[0])

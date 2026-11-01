@@ -119,6 +119,12 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
         data = {"rules_version":"v6.0","decision_protocol":"v6_sealed","source_fingerprint":runtime.fingerprint(),"config_fingerprint":runtime.config_fingerprint(config),"rule_config":config,"initial_state":copy.deepcopy(state),"rounds":[],"records":[],"resume_events":[],"run_status":"running","model_settings":_model_settings(provider),"fallback_count":0,"final_state":copy.deepcopy(state),"result":{}}
     def save():
         _atomic_write(run_dir / "run.json", json.dumps(data, ensure_ascii=False, indent=2))
+    def save_live():
+        live = {"run_status": data.get("run_status"), "result": data.get("result"),
+                "initial_state": {"countries": data.get("initial_state", {}).get("countries", {})},
+                "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public")}
+                           for row in data.get("rounds", [])]}
+        _atomic_write(run_dir / "live.json", json.dumps(live, ensure_ascii=False))
     def save_call_progress():
         save()
         call = data["records"][-1]
@@ -129,7 +135,7 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
             print(f"{prefix}：决策已通过校验", flush=True)
         else:
             print(f"{prefix}：失败（{call.get('error') or '未知错误'}）", flush=True)
-    save(); print(f"{'续跑' if resumed else '实验'}目录：{run_dir}", flush=True)
+    save(); save_live(); print(f"{'续跑' if resumed else '实验'}目录：{run_dir}", flush=True)
     try:
         while not state.get("outcome", {}).get("finished"):
             living_count = sum(1 for country in state["countries"].values() if country.get("alive", True))
@@ -146,7 +152,7 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
                                    "state_changes":runtime.state_changes(state, next_state),
                                    "state":copy.deepcopy(next_state),"public":public})
             state = next_state; history.append(public)
-            data["final_state"] = copy.deepcopy(state); data["result"] = copy.deepcopy(state.get("outcome", {})); save()
+            data["final_state"] = copy.deepcopy(state); data["result"] = copy.deepcopy(state.get("outcome", {})); save(); save_live()
             print(f"[第 {settlement['round']} 轮] 结算完成；下一状态："
                   f"{'游戏结束' if state.get('outcome', {}).get('finished') else '第 ' + str(state['round']) + ' 轮'}",
                   flush=True)
@@ -155,7 +161,7 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
         data["run_status"] = "interrupted"; data["error_type"] = "KeyboardInterrupt"
     except Exception as exc:
         data["run_status"] = "failed"; data["error_type"] = type(exc).__name__; data["error_message"] = str(exc)[:500] if isinstance(exc, (ValueError, OSError)) else ""
-    save()
+    save(); save_live()
     if data["run_status"] in ("completed", "completed_with_errors"):
         md, page = runtime.reports(data)
         _atomic_write(run_dir / "report.md", md); _atomic_write(run_dir / "report.html", page)
