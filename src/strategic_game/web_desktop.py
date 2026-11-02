@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,8 +14,17 @@ from datetime import datetime
 from pathlib import Path
 
 from . import protocol, runtime
+from .call_summaries import read_live_summaries, summarize_calls
 
 DERIVED = {"global_presence", "strategic_culture_knowledge", "ideology_focus_knowledge", "tag_knowledge"}
+
+
+def _serialized_action(method):
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._action_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 def _clean_countries(countries):
@@ -52,9 +63,13 @@ class DesktopApi:
         self.scenario_path = None
         self.logs = []
         self._lock = threading.Lock()
+        self._action_lock = threading.Lock()
+        self._consumer_active = False
         self._view_cache = None
         self._view_revision = 0
         self._status_revision = 0
+        self._stop_requested = False
+        self._progress = {"round": None, "countries": {}}
 
     def get_config(self):
         scenario_path = Path(__file__).parent / "scenarios" / "eight_nations_dawn_strait.json"
@@ -70,12 +85,17 @@ class DesktopApi:
             return None
         try:
             live_file = self.run_file.with_name("live.json")
-            data = json.loads((live_file if live_file.exists() else self.run_file).read_text(encoding="utf-8"))
+            running = self.process is not None and self.process.poll() is None
+            data = json.loads((live_file if running and live_file.exists() else self.run_file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
+        # Existing run.json records contain complete prompts and model responses.
+        # Always regenerate the strictly limited summary when reading a full record.
+        summaries = summarize_calls(data) if "records" in data else read_live_summaries(data)
         return {"run_status": data.get("run_status"), "result": data.get("result"),
+                "call_summaries": summaries,
                 "initial_state": {"countries": data.get("initial_state", {}).get("countries", {})},
-                "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public")}
+                "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public", "settlement")}
                            for row in data.get("rounds", [])]}
 
     def _refresh_view(self):
@@ -91,12 +111,78 @@ class DesktopApi:
 
     def get_status(self):
         with self._lock:
-            running = self.process is not None and self.process.poll() is None
+            running = self._consumer_active or (self.process is not None and self.process.poll() is None)
             code = None if running or self.process is None else self.process.returncode
-            status = "运行中" if running else ("就绪" if self.process is None else ("已完成" if code == 0 else "已停止"))
+            recorded = (self._view_cache or {}).get("run_status")
+            if running:
+                phase = "running"
+            elif self._stop_requested:
+                phase = "completed" if code == 0 and recorded == "completed" else "stopped"
+            elif self.process is None:
+                phase = {"interrupted": "stopped", "running": "unfinished"}.get(recorded, recorded or "idle")
+            elif code == 0:
+                phase = "completed"
+            elif recorded == "completed_with_errors" and any(line.startswith("完成：") for line in self.logs):
+                phase = "completed_with_errors"
+            else:
+                phase = "failed"
+            status = {"idle": "就绪", "running": "运行中", "completed": "已完成",
+                      "completed_with_errors": "完成（有错误）", "failed": "运行失败", "stopped": "已停止",
+                      "unfinished": "未完成（运行状态未知）"}.get(phase, str(phase))
             return {"running": running, "status": status, "logs": self.logs[-300:],
                     "run_file": str(self.run_file) if self.run_file else None,
+                    "phase": phase, "progress": copy.deepcopy(self._progress),
                     "revision": self._status_revision, "view_revision": self._view_revision}
+
+    def _update_progress(self, line):
+        match = re.search(r"\[第 (\d+) 轮\] (\S+) 尝试 (\d+)/(\d+)：(.*)", line)
+        if not match:
+            return
+        round_no, country, attempt, total, text = match.groups()
+        round_no = int(round_no)
+        if self._progress["round"] != round_no:
+            self._progress = {"round": round_no, "countries": {}}
+        status = "started" if "正在请求模型" in text else ("completed" if "通过校验" in text else "failed")
+        self._progress["countries"][country] = {"status": status, "attempt": int(attempt), "max_attempts": int(total)}
+
+    def list_runs(self, output_parent):
+        parent = Path(output_parent or Path.cwd() / "runs").expanduser()
+        if not parent.is_dir():
+            return []
+        result = []
+        for path in parent.glob("*/run.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or data.get("rules_version") != "v6.0" or not isinstance(data.get("rounds"), list):
+                    continue
+                status = data.get("run_status", "unknown")
+                result.append({"path": str(path.resolve()), "name": path.parent.name,
+                               "status": status, "rounds": len(data["rounds"]),
+                               "modified": path.stat().st_mtime,
+                               "resumable": status not in ("completed", "completed_with_errors")})
+            except (OSError, ValueError, TypeError):
+                continue
+        return sorted(result, key=lambda item: item["modified"], reverse=True)
+
+    @_serialized_action
+    def open_run(self, path):
+        if self._consumer_active or (self.process is not None and self.process.poll() is None):
+            raise RuntimeError("请先停止当前推演，再打开历史记录")
+        selected = Path(path).expanduser()
+        try:
+            data = json.loads(selected.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError("无法读取运行记录，请选择有效的 run.json") from exc
+        if not isinstance(data, dict) or data.get("rules_version") != "v6.0" or not isinstance(data.get("rounds"), list):
+            raise ValueError("仅支持打开 v6.0 运行记录")
+        self.process = None
+        self.run_file = selected
+        self._stop_requested = False
+        with self._lock:
+            self.logs = []
+            self._progress = {"round": None, "countries": {}}
+        self._refresh_view()
+        return self.get_status()
 
     def _command(self, args):
         return [sys.executable, "--cli-worker", *args] if getattr(sys, "frozen", False) else [sys.executable, "-m", "strategic_game.cli", *args]
@@ -110,6 +196,9 @@ class DesktopApi:
                                    text=True, encoding="utf-8", errors="replace", env=env,
                                    creationflags=flags, bufsize=1)
         self.process = process
+        with self._lock:
+            self._consumer_active = True
+            self._status_revision += 1
         scenario_path = self.scenario_path
         threading.Thread(target=self._consume, args=(process, scenario_path), daemon=True).start()
 
@@ -118,21 +207,28 @@ class DesktopApi:
             for line in process.stdout:
                 with self._lock:
                     self.logs.append(line)
+                    self._update_progress(line)
                     if len(self.logs) > 500:
                         del self.logs[:-500]
                     self._status_revision += 1
-                if "结算完成；下一状态" in line:
+                if "结算完成；下一状态" in line or re.search(r"\[第 \d+ 轮\] \S+ 尝试 \d+/\d+：", line):
                     self._refresh_view()
         finally:
-            process.wait()
-            self._refresh_view()
-            if scenario_path:
-                Path(scenario_path).unlink(missing_ok=True)
-                if self.scenario_path == scenario_path:
-                    self.scenario_path = None
+            try:
+                process.wait()
+                self._refresh_view()
+                if scenario_path:
+                    Path(scenario_path).unlink(missing_ok=True)
+                    if self.scenario_path == scenario_path:
+                        self.scenario_path = None
+            finally:
+                with self._lock:
+                    self._consumer_active = False
+                    self._status_revision += 1
 
+    @_serialized_action
     def start_run(self, payload):
-        if self.process is not None and self.process.poll() is None:
+        if self._consumer_active or (self.process is not None and self.process.poll() is None):
             raise RuntimeError("已有推演正在运行")
         provider, model = payload.get("provider"), str(payload.get("model", "")).strip()
         key = str(payload.get("api_key") or "").strip() or _configured_key(provider)
@@ -147,12 +243,12 @@ class DesktopApi:
                     "max_rounds": rounds, "countries": _clean_countries(payload.get("countries", {})),
                     "conflicts": {}, "threat_history": {}, "nuclear_used": []}
         protocol.validate_scenario(copy.deepcopy(scenario))
+        parent = Path(payload.get("output_parent") or Path.cwd() / "runs").expanduser()
+        parent.mkdir(parents=True, exist_ok=True)
         handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False)
         json.dump(scenario, handle, ensure_ascii=False, indent=2); handle.close()
         self.scenario_path = handle.name
-        parent = Path(payload.get("output_parent") or Path.cwd() / "runs").expanduser()
-        parent.mkdir(parents=True, exist_ok=True)
-        out = parent / ("workbench-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+        out = parent / ("workbench-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
         self.run_file = out / "run.json"
         args = ["run", "--provider", provider, "--model", model, "--scenario", handle.name,
                 "--rounds", str(rounds), "--out", str(out)]
@@ -160,18 +256,39 @@ class DesktopApi:
             args += ["--base-url", base_url]
         with self._lock:
             self.logs = []
+            self._stop_requested = False
+            self._progress = {"round": None, "countries": {}}
             self._view_cache = None
             self._view_revision += 1
             self._status_revision += 1
-        self._launch(args, provider, key)
+        try:
+            self._launch(args, provider, key)
+        except Exception:
+            Path(self.scenario_path).unlink(missing_ok=True)
+            self.scenario_path = None
+            raise
         return self.get_status()
 
+    @_serialized_action
     def resume_run(self, payload):
-        import webview
-        chosen = webview.windows[0].create_file_dialog(webview.FileDialog.OPEN, file_types=("运行记录 (*.json)",))
-        if not chosen:
-            return self.get_status()
-        path = Path(chosen[0])
+        if self._consumer_active or (self.process is not None and self.process.poll() is None):
+            raise RuntimeError("已有推演正在运行")
+        selected = payload.get("path")
+        if not selected:
+            import webview
+            chosen = webview.windows[0].create_file_dialog(webview.FileDialog.OPEN, file_types=("运行记录 (*.json)",))
+            if not chosen:
+                return self.get_status()
+            selected = chosen[0]
+        path = Path(selected).expanduser()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError("无法读取运行记录，请选择有效的 run.json") from exc
+        if not isinstance(data, dict) or data.get("rules_version") != "v6.0" or not isinstance(data.get("rounds"), list):
+            raise ValueError("仅支持续跑 v6.0 运行记录")
+        if data.get("run_status") in ("completed", "completed_with_errors"):
+            raise ValueError("该实验已经完成，不能续跑")
         provider, model = payload.get("provider"), payload.get("model")
         key = str(payload.get("api_key") or "").strip() or _configured_key(provider)
         if provider not in ("deepseek", "openai") or not model or not key:
@@ -185,13 +302,24 @@ class DesktopApi:
         self._refresh_view()
         with self._lock:
             self.logs = []
+            self._stop_requested = False
+            self._progress = {"round": None, "countries": {}}
             self._status_revision += 1
         self._launch(args, provider, key)
         return self.get_status()
 
+    @_serialized_action
     def stop_run(self):
         if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+            with self._lock:
+                self._stop_requested = True
+                self._status_revision += 1
+            try:
+                self.process.terminate()
+            except ProcessLookupError:
+                with self._lock:
+                    self._stop_requested = False
+                    self._status_revision += 1
         return {"ok": True}
 
 
@@ -206,7 +334,7 @@ def main(argv=None):
     import webview
     api = DesktopApi()
     window = webview.create_window("战略多智能体推演", _frontend_path().as_uri(), js_api=api,
-                                   width=1440, height=900, min_size=(1080, 700), background_color="#f5f6f8")
+                                   width=1440, height=900, min_size=(760, 600), background_color="#f5f6f8")
     window.events.closing += lambda: api.stop_run()
     webview.start(debug=False)
     return 0

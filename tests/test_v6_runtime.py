@@ -30,6 +30,8 @@ class V6RuntimeTests(unittest.TestCase):
             self.assertEqual(data['rules_version'],'v6.0')
             self.assertEqual(len(live['rounds']),3)
             self.assertNotIn('records',live)
+            self.assertTrue(live['call_summaries'])
+            self.assertEqual(set(live['call_summaries'][0]), {'round','country_id','attempt','status','error','fallback'})
             self.assertEqual(len(data['rounds']),3)
             self.assertTrue(data['rounds'][0]['state_changes'])
             self.assertTrue(v.replay(data)[0])

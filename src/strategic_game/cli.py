@@ -55,6 +55,7 @@ def _model_settings(provider) -> dict:
 
 def cmd_run_v6(args: argparse.Namespace) -> int:
     from . import runtime as runtime, protocol as protocol, rules as rules
+    from .call_summaries import summarize_calls
     if args.retries < 0:
         raise ValueError("retries 必须 ≥0")
     resumed = args.resume is not None
@@ -121,12 +122,14 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
         _atomic_write(run_dir / "run.json", json.dumps(data, ensure_ascii=False, indent=2))
     def save_live():
         live = {"run_status": data.get("run_status"), "result": data.get("result"),
+                "call_summaries": summarize_calls(data),
                 "initial_state": {"countries": data.get("initial_state", {}).get("countries", {})},
-                "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public")}
+                "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public", "settlement")}
                            for row in data.get("rounds", [])]}
         _atomic_write(run_dir / "live.json", json.dumps(live, ensure_ascii=False))
     def save_call_progress():
         save()
+        save_live()
         call = data["records"][-1]
         prefix = f"[第 {call['round']} 轮] {call['country_id']} 尝试 {call['attempt']}/{args.retries + 1}"
         if call["status"] == "started":
