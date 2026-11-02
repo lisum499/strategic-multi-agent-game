@@ -51,11 +51,14 @@ if errorlevel 1 exit /b 1
 call npm run build
 if errorlevel 1 exit /b 1
 popd
+set "ENV_DATA="
+if exist ".env" set "ENV_DATA=--add-data .env;."
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name StrategicMultiAgentGame ^
   --collect-data strategic_game ^
   --collect-all webview ^
   --add-data "frontend\dist;web_dist" ^
+  %ENV_DATA% ^
   web_app.py
 if errorlevel 1 exit /b 1
 

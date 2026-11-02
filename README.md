@@ -25,6 +25,8 @@ PYTHONPATH=src python3 -m strategic_game.web_desktop
 
 界面支持增删和编辑任意数量的国家，设置国家存在值、常规与核力量、战略文化、意识形态、国家画像、世界背景、模型 API 和回合数。左侧实时显示模型调用与校验进度，右侧分别展示逐轮完整决策和世界状态变化；API Key 只传给后台进程，不写入场景或运行记录。运行中可停止，并可通过“断点续跑”选择原实验的 `run.json`。
 
+桌面端可在项目根目录的 `.env` 设置 `DEEPSEEK_API_KEY`。界面留空时使用该值，手动输入优先，环境变量优先于 `.env`。`.env` 被 Git 忽略；本地 Windows 打包脚本以及 macOS 的 `sh scripts/build_macos_dmg.sh` 会在文件存在时将其包含在安装包中。包内密钥可被提取，分享安装包相当于分享密钥。GitHub Actions 不会获得本地 `.env`，因此其构建产物不会自动包含该文件。
+
 在 Windows 10/11 上安装 Python 3.10 或以上后，可以先双击以下脚本直接运行源码版界面：
 
 ```text

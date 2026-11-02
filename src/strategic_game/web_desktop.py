@@ -29,6 +29,22 @@ def _frontend_path():
     return path
 
 
+def _configured_key(provider):
+    """Read a local or bundled credential without exposing it to the webview."""
+    name = "DEEPSEEK_API_KEY" if provider == "deepseek" else "OPENAI_API_KEY"
+    if os.environ.get(name):
+        return os.environ[name].strip()
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    try:
+        for line in (root / ".env").read_text(encoding="utf-8").splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and key.strip() == name:
+                return value.strip().strip('"\'')
+    except FileNotFoundError:
+        pass
+    return ""
+
+
 class DesktopApi:
     def __init__(self):
         self.process = None
@@ -46,6 +62,7 @@ class DesktopApi:
         return {"countries": _clean_countries(scenario["countries"]),
                 "world_context": scenario.get("world_context", ""), "rounds": scenario.get("max_rounds", 30),
                 "provider": "deepseek", "model": "deepseek-flash", "base_url": "",
+                "deepseek_key_configured": bool(_configured_key("deepseek")),
                 "output_parent": str(Path.cwd() / "runs")}
 
     def _view(self):
@@ -117,7 +134,8 @@ class DesktopApi:
     def start_run(self, payload):
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("已有推演正在运行")
-        provider, model, key = payload.get("provider"), str(payload.get("model", "")).strip(), str(payload.get("api_key", "")).strip()
+        provider, model = payload.get("provider"), str(payload.get("model", "")).strip()
+        key = str(payload.get("api_key") or "").strip() or _configured_key(provider)
         if provider not in ("deepseek", "openai") or not model or not key:
             raise ValueError("服务、模型和 API Key 必须填写")
         rounds = int(payload.get("rounds", 30))
@@ -154,7 +172,12 @@ class DesktopApi:
         if not chosen:
             return self.get_status()
         path = Path(chosen[0])
-        provider, model, key = payload.get("provider"), payload.get("model"), payload.get("api_key")
+        provider, model = payload.get("provider"), payload.get("model")
+        key = str(payload.get("api_key") or "").strip() or _configured_key(provider)
+        if provider not in ("deepseek", "openai") or not model or not key:
+            raise ValueError("服务、模型和 API Key 必须填写")
+        if provider == "openai" and not str(payload.get("base_url") or "").strip():
+            raise ValueError("OpenAI 兼容服务必须填写 Base URL")
         args = ["run", "--resume", str(path), "--provider", provider, "--model", model]
         if provider == "openai":
             args += ["--base-url", payload.get("base_url", "")]
@@ -187,3 +210,7 @@ def main(argv=None):
     window.events.closing += lambda: api.stop_run()
     webview.start(debug=False)
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
