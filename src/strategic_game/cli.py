@@ -123,7 +123,7 @@ def cmd_run_v6(args: argparse.Namespace) -> int:
     def save_live():
         live = {"run_status": data.get("run_status"), "result": data.get("result"),
                 "call_summaries": summarize_calls(data),
-                "initial_state": {"countries": data.get("initial_state", {}).get("countries", {})},
+                "initial_state": {key: data.get("initial_state", {}).get(key) for key in ("name", "world_context", "countries")},
                 "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public", "settlement")}
                            for row in data.get("rounds", [])]}
         _atomic_write(run_dir / "live.json", json.dumps(live, ensure_ascii=False))

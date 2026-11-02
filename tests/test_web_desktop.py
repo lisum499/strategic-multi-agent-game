@@ -89,7 +89,7 @@ class WebDesktopTests(unittest.TestCase):
             run = Path(folder) / "example" / "run.json"
             run.parent.mkdir()
             run.write_text(json.dumps({"rules_version": "v6.0", "run_status": "completed_with_errors",
-                "initial_state": {"countries": {"C1": {"name": "历史国家"}}},
+                "initial_state": {"world_context": "历史背景", "countries": {"C1": {"name": "历史国家"}}},
                 "rounds": [{"round": 1, "settlement": {"actions": ["example"]}}]}), encoding="utf-8")
             history = api.list_runs(folder)
             self.assertEqual(len(history), 1)
@@ -98,6 +98,7 @@ class WebDesktopTests(unittest.TestCase):
             self.assertEqual(status["phase"], "completed_with_errors")
             view = api.get_run_view()
             self.assertEqual(view["initial_state"]["countries"]["C1"]["name"], "历史国家")
+            self.assertEqual(view["initial_state"]["world_context"], "历史背景")
             self.assertEqual(view["rounds"][0]["settlement"]["actions"], ["example"])
 
     def test_progress_and_stopped_are_distinct_from_failure(self):

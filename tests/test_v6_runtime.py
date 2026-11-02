@@ -29,6 +29,7 @@ class V6RuntimeTests(unittest.TestCase):
             live=json.loads((out/'live.json').read_text())
             self.assertEqual(data['rules_version'],'v6.0')
             self.assertEqual(len(live['rounds']),3)
+            self.assertEqual(live['initial_state']['world_context'], data['initial_state']['world_context'])
             self.assertNotIn('records',live)
             self.assertTrue(live['call_summaries'])
             self.assertEqual(set(live['call_summaries'][0]), {'round','country_id','attempt','status','error','fallback'})

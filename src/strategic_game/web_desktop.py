@@ -94,7 +94,7 @@ class DesktopApi:
         summaries = summarize_calls(data) if "records" in data else read_live_summaries(data)
         return {"run_status": data.get("run_status"), "result": data.get("result"),
                 "call_summaries": summaries,
-                "initial_state": {"countries": data.get("initial_state", {}).get("countries", {})},
+                "initial_state": {key: data.get("initial_state", {}).get(key) for key in ("name", "world_context", "countries")},
                 "rounds": [{key: row.get(key) for key in ("round", "decisions", "state", "state_changes", "public", "settlement")}
                            for row in data.get("rounds", [])]}
 
