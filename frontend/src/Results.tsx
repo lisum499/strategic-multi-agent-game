@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import './Results.css';
 
 const nuclear = new Set(['有限核武器使用', '升级性核行动', '扩大核打击行动', '战略核战争']);
@@ -7,7 +8,7 @@ const fieldNames: Record<string, string> = {global_presence: '综合存在值', 
 const format = (value: unknown) => typeof value === 'number' ? Number(value.toFixed(3)).toString() : typeof value === 'boolean' ? (value ? '在场' : '退场') : value == null ? '无' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 
 /** 结算事实以 pairs 为准：其中包括自动反击，而 effective_decisions 只保存有效的提交决策。 */
-export function Results({selected, names, calls = []}: {selected: any; names: Record<string, string>; calls?: any[]}) {
+export function Results({selected, names, calls = [], children}: {selected: any; names: Record<string, string>; calls?: any[]; children?: ReactNode}) {
   if (!selected) return null;
   const settlement = selected.settlement;
   const pairs = Array.isArray(settlement?.pairs) ? settlement.pairs : null;
@@ -31,6 +32,7 @@ export function Results({selected, names, calls = []}: {selected: any; names: Re
   });
   return <section className="round-results" aria-label="本轮结算">
     <header className="results-header"><div><span>ROUND {selected.round}</span><h2>本轮结算与重大事件</h2></div><small>基于程序结算记录</small></header>
+    {children}
     {!pairs ? <p className="results-unknown">此记录没有可用的逐对结算数据，无法确认本轮军事或核行动是否执行。</p> : <>
       <div className="results-summary"><span className={actions.some(x => nuclear.has(x.action)) ? 'result-badge nuclear' : 'result-badge'}>核武器使用：{actions.filter(x => nuclear.has(x.action)).length} 项</span><span className={actions.some(x => majorCombat.has(x.action)) ? 'result-badge military' : 'result-badge'}>大规模作战／核战争：{actions.filter(x => majorCombat.has(x.action)).length} 项</span><span className={actions.some(x => military.has(x.action)) ? 'result-badge military' : 'result-badge'}>常规军事行动：{actions.filter(x => military.has(x.action)).length} 项</span><span className={cancellations.length ? 'result-badge canceled' : 'result-badge'}>结算时取消：{cancellations.length} 项</span></div>
       {actions.length ? <div className="major-events">{actions.map((item, i) => <article className={nuclear.has(item.action) ? 'major-event nuclear-event' : 'major-event'} key={`${item.actor}-${item.target}-${i}`}>
